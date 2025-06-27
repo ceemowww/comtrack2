@@ -7,17 +7,17 @@
     "start": "node dist/server.js",
     "dev": "nodemon --exec ts-node src/server.ts",
     "build": "tsc",
-    "init-db": "node ../init-db.js"
+    "init-db": "node ../database/init-db.js"
   },
   "dependencies": {
-    "pg": "^8.11.0",
-    "dotenv": "^16.0.3"
+    "dotenv": "^16.6.1",
+    "pg": "^8.11.0"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
     "@types/pg": "^8.10.0",
-    "typescript": "^5.0.0",
+    "nodemon": "^2.0.22",
     "ts-node": "^10.9.0",
-    "nodemon": "^2.0.22"
+    "typescript": "^5.0.0"
   }
 }

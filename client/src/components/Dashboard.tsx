@@ -1,12 +1,15 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { api } from '../api';
-import { Company, Customer, Supplier, Part } from '../types';
+import { Company, Customer, Supplier, Part, SalesOrder, CommissionOutstanding } from '../types';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
-import { Building2, Users, Truck, Mail, Phone, MapPin, User, Package, DollarSign, Plus, Edit, Trash2 } from 'lucide-react';
+import { Building2, Users, Truck, Mail, Phone, MapPin, User, Package, DollarSign, Plus, Edit, Trash2, FileText, Calendar, CreditCard } from 'lucide-react';
 import CustomerForm from './CustomerForm';
 import SupplierForm from './SupplierForm';
 import PartForm from './PartForm';
+import SalesOrderCreate from './SalesOrderCreate';
+import SalesOrderDetail from './SalesOrderDetail';
 
 interface DashboardProps {
   company: Company;
@@ -14,10 +17,16 @@ interface DashboardProps {
 }
 
 const Dashboard: React.FC<DashboardProps> = ({ company, onLogout }) => {
+  const navigate = useNavigate();
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [parts, setParts] = useState<Part[]>([]);
-  const [activeTab, setActiveTab] = useState<'customers' | 'suppliers' | 'parts'>('customers');
+  const [salesOrders, setSalesOrders] = useState<SalesOrder[]>([]);
+  const [commissionOutstanding, setCommissionOutstanding] = useState<CommissionOutstanding[]>([]);
+  const [activeTab, setActiveTab] = useState<'customers' | 'suppliers' | 'parts' | 'sales-orders'>('sales-orders');
+  const [selectedSupplier, setSelectedSupplier] = useState<Supplier | null>(null);
+  const [showCreateSalesOrder, setShowCreateSalesOrder] = useState(false);
+  const [selectedOrderId, setSelectedOrderId] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   
   // Customer form state
@@ -38,14 +47,18 @@ const Dashboard: React.FC<DashboardProps> = ({ company, onLogout }) => {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const [customersData, suppliersData, partsData] = await Promise.all([
+        const [customersData, suppliersData, partsData, salesOrdersData, commissionData] = await Promise.all([
           api.getCustomers(company.id),
           api.getSuppliers(company.id),
-          api.getParts(company.id)
+          api.getParts(company.id),
+          api.getSalesOrders(company.id),
+          api.getCommissionOutstanding(company.id)
         ]);
         setCustomers(customersData);
         setSuppliers(suppliersData);
         setParts(partsData);
+        setSalesOrders(salesOrdersData);
+        setCommissionOutstanding(commissionData);
       } catch (err) {
         console.error('Failed to fetch data:', err);
       } finally {
@@ -221,6 +234,51 @@ const Dashboard: React.FC<DashboardProps> = ({ company, onLogout }) => {
     setPartFormOpen(true);
   };
 
+  // Sales Order handlers
+  const handleSalesOrderSuccess = async () => {
+    try {
+      const salesOrdersData = await api.getSalesOrders(company.id);
+      setSalesOrders(salesOrdersData);
+      setShowCreateSalesOrder(false);
+      setActiveTab('sales-orders');
+    } catch (error) {
+      console.error('Failed to refresh sales orders:', error);
+    }
+  };
+
+  const handleDeleteSalesOrder = async (orderId: number) => {
+    if (!confirm('Are you sure you want to delete this sales order?')) return;
+    
+    try {
+      await api.deleteSalesOrder(company.id, orderId);
+      setSalesOrders(prev => prev.filter(so => so.id !== orderId));
+    } catch (error) {
+      console.error('Failed to delete sales order:', error);
+    }
+  };
+
+  // Show create sales order page
+  if (showCreateSalesOrder) {
+    return (
+      <SalesOrderCreate
+        companyId={company.id}
+        onBack={() => setShowCreateSalesOrder(false)}
+        onSuccess={handleSalesOrderSuccess}
+      />
+    );
+  }
+
+  // Show sales order detail page
+  if (selectedOrderId) {
+    return (
+      <SalesOrderDetail
+        companyId={company.id}
+        orderId={selectedOrderId}
+        onBack={() => setSelectedOrderId(null)}
+      />
+    );
+  }
+
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
@@ -251,6 +309,17 @@ const Dashboard: React.FC<DashboardProps> = ({ company, onLogout }) => {
       <nav className="bg-white shadow-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex space-x-8">
+            <button 
+              className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
+                activeTab === 'sales-orders' 
+                  ? 'border-blue-500 text-blue-600' 
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+              onClick={() => setActiveTab('sales-orders')}
+            >
+              <FileText className="inline h-4 w-4 mr-2" />
+              Sales Orders ({salesOrders.length})
+            </button>
             <button 
               className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
                 activeTab === 'customers' 
@@ -289,7 +358,116 @@ const Dashboard: React.FC<DashboardProps> = ({ company, onLogout }) => {
       </nav>
 
       <main className="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8">
-        {activeTab === 'customers' ? (
+        {activeTab === 'sales-orders' ? (
+          <div>
+            <div className="mb-6 flex justify-between items-center">
+              <div>
+                <h2 className="text-2xl font-bold text-gray-900 mb-2">Sales Orders</h2>
+                <p className="text-gray-600">Customer purchase orders with commission tracking</p>
+              </div>
+              <Button onClick={() => setShowCreateSalesOrder(true)}>
+                <Plus className="h-4 w-4 mr-2" />
+                Create Sales Order
+              </Button>
+            </div>
+            <div className="bg-white shadow-sm rounded-lg overflow-hidden">
+              <div className="px-6 py-4 border-b border-gray-200">
+                <div className="grid grid-cols-12 gap-4 text-sm font-medium text-gray-500 uppercase tracking-wider">
+                  <div className="col-span-2">PO Number</div>
+                  <div className="col-span-2">Customer</div>
+                  <div className="col-span-2">Date</div>
+                  <div className="col-span-1">Status</div>
+                  <div className="col-span-2">Total Sales</div>
+                  <div className="col-span-2">Commission</div>
+                  <div className="col-span-1">Actions</div>
+                </div>
+              </div>
+              <div className="divide-y divide-gray-200">
+                {salesOrders.map(order => {
+                  const statusColors = {
+                    pending: 'bg-yellow-100 text-yellow-800',
+                    confirmed: 'bg-blue-100 text-blue-800',
+                    shipped: 'bg-purple-100 text-purple-800',
+                    delivered: 'bg-green-100 text-green-800',
+                    cancelled: 'bg-red-100 text-red-800'
+                  };
+                  
+                  return (
+                    <div key={order.id} className="px-6 py-4 hover:bg-gray-50 transition-colors">
+                      <div className="grid grid-cols-12 gap-4 items-center">
+                        <div className="col-span-2">
+                          <div className="flex items-center">
+                            <FileText className="h-4 w-4 mr-2 text-blue-600 flex-shrink-0" />
+                            <button 
+                              className="font-medium text-blue-600 hover:text-blue-800 hover:underline"
+                              onClick={() => setSelectedOrderId(order.id)}
+                            >
+                              {order.po_number}
+                            </button>
+                          </div>
+                        </div>
+                        <div className="col-span-2">
+                          <div className="flex items-center">
+                            <Building2 className="h-4 w-4 mr-2 text-gray-400 flex-shrink-0" />
+                            <span className="text-sm text-gray-600">{order.customer_name}</span>
+                          </div>
+                        </div>
+                        <div className="col-span-2">
+                          <div className="flex items-center">
+                            <Calendar className="h-4 w-4 mr-2 text-gray-400 flex-shrink-0" />
+                            <span className="text-sm text-gray-600">
+                              {new Date(order.order_date).toLocaleDateString()}
+                            </span>
+                          </div>
+                        </div>
+                        <div className="col-span-1">
+                          <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                            statusColors[order.status as keyof typeof statusColors] || 'bg-gray-100 text-gray-800'
+                          }`}>
+                            {order.status}
+                          </span>
+                        </div>
+                        <div className="col-span-2">
+                          <div className="flex items-center">
+                            <DollarSign className="h-4 w-4 mr-1 text-gray-400" />
+                            <span className="text-sm font-medium text-gray-900">
+                              {typeof order.total_amount === 'string' 
+                                ? parseFloat(order.total_amount).toFixed(2) 
+                                : order.total_amount.toFixed(2)}
+                            </span>
+                          </div>
+                        </div>
+                        <div className="col-span-2">
+                          <div className="flex items-center">
+                            <CreditCard className="h-4 w-4 mr-1 text-green-600" />
+                            <span className="text-sm font-medium text-green-600">
+                              {order.total_commission 
+                                ? (typeof order.total_commission === 'string' 
+                                   ? parseFloat(order.total_commission).toFixed(2)
+                                   : order.total_commission.toFixed(2))
+                                : '0.00'}
+                            </span>
+                          </div>
+                        </div>
+                        <div className="col-span-1">
+                          <div className="flex space-x-1">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleDeleteSalesOrder(order.id)}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        ) : activeTab === 'customers' ? (
           <div>
             <div className="mb-6 flex justify-between items-center">
               <div>
@@ -367,62 +545,76 @@ const Dashboard: React.FC<DashboardProps> = ({ company, onLogout }) => {
               </Button>
             </div>
             <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-              {suppliers.map(supplier => (
-                <Card key={supplier.id} className="hover:shadow-md transition-shadow">
-                  <CardHeader>
-                    <CardTitle className="flex items-center justify-between">
-                      <div className="flex items-center">
-                        <Truck className="h-5 w-5 mr-2 text-green-600" />
-                        {supplier.name}
+              {suppliers.map(supplier => {
+                const supplierCommission = commissionOutstanding.find(c => c.supplier_id === supplier.id);
+                return (
+                  <Card key={supplier.id} className="hover:shadow-md transition-shadow cursor-pointer"
+                        onClick={() => navigate(`/suppliers/${supplier.id}`)}>
+                    <CardHeader>
+                      <CardTitle className="flex items-center justify-between">
+                        <div className="flex items-center">
+                          <Truck className="h-5 w-5 mr-2 text-green-600" />
+                          {supplier.name}
+                        </div>
+                        <div className="flex space-x-1" onClick={(e) => e.stopPropagation()}>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => openEditSupplier(supplier)}
+                          >
+                            <Edit className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleDeleteSupplier(supplier.id)}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="space-y-2">
+                        {supplier.contact_person && (
+                          <div className="flex items-center text-sm text-gray-600">
+                            <User className="h-4 w-4 mr-2" />
+                            {supplier.contact_person}
+                          </div>
+                        )}
+                        {supplier.email && (
+                          <div className="flex items-center text-sm text-gray-600">
+                            <Mail className="h-4 w-4 mr-2" />
+                            {supplier.email}
+                          </div>
+                        )}
+                        {supplier.phone && (
+                          <div className="flex items-center text-sm text-gray-600">
+                            <Phone className="h-4 w-4 mr-2" />
+                            {supplier.phone}
+                          </div>
+                        )}
+                        {supplier.address && (
+                          <div className="flex items-start text-sm text-gray-600">
+                            <MapPin className="h-4 w-4 mr-2 mt-0.5 flex-shrink-0" />
+                            <span className="line-clamp-2">{supplier.address}</span>
+                          </div>
+                        )}
+                        {supplierCommission && Number(supplierCommission.outstanding_amount) > 0 && (
+                          <div className="mt-3 pt-3 border-t border-gray-200">
+                            <div className="flex items-center justify-between text-sm">
+                              <span className="text-gray-600">Commission Outstanding:</span>
+                              <span className="font-semibold text-red-600">
+                                ${Number(supplierCommission.outstanding_amount).toFixed(2)}
+                              </span>
+                            </div>
+                          </div>
+                        )}
                       </div>
-                      <div className="flex space-x-1">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => openEditSupplier(supplier)}
-                        >
-                          <Edit className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => handleDeleteSupplier(supplier.id)}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="space-y-2">
-                      {supplier.contact_person && (
-                        <div className="flex items-center text-sm text-gray-600">
-                          <User className="h-4 w-4 mr-2" />
-                          {supplier.contact_person}
-                        </div>
-                      )}
-                      {supplier.email && (
-                        <div className="flex items-center text-sm text-gray-600">
-                          <Mail className="h-4 w-4 mr-2" />
-                          {supplier.email}
-                        </div>
-                      )}
-                      {supplier.phone && (
-                        <div className="flex items-center text-sm text-gray-600">
-                          <Phone className="h-4 w-4 mr-2" />
-                          {supplier.phone}
-                        </div>
-                      )}
-                      {supplier.address && (
-                        <div className="flex items-start text-sm text-gray-600">
-                          <MapPin className="h-4 w-4 mr-2 mt-0.5 flex-shrink-0" />
-                          <span className="line-clamp-2">{supplier.address}</span>
-                        </div>
-                      )}
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
+                    </CardContent>
+                  </Card>
+                );
+              })}
             </div>
           </div>
         ) : (

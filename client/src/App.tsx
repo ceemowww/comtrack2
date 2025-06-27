@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import Login from './components/Login';
 import Dashboard from './components/Dashboard';
+import SupplierPage from './components/SupplierPage';
 import { Company } from './types';
 import './App.css';
 
@@ -42,6 +43,14 @@ function App() {
             element={
               selectedCompany ? 
                 <Dashboard company={selectedCompany} onLogout={handleLogout} /> : 
+                <Navigate to="/login" replace />
+            } 
+          />
+          <Route 
+            path="/suppliers/:supplierId" 
+            element={
+              selectedCompany ? 
+                <SupplierPage company={selectedCompany} onLogout={handleLogout} /> : 
                 <Navigate to="/login" replace />
             } 
           />

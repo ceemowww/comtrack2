@@ -1,6 +1,16 @@
-# ComTrack
+# ComTrack2 - Commission Tracking System
 
-A company relationship tracking application built with React TypeScript frontend and Node.js TypeScript backend.
+A comprehensive commission tracking system for managing supplier payments and reconciliation.
+
+## Features
+
+- **Multi-tenant Architecture**: Support for multiple companies/workspaces
+- **Supplier Management**: Track suppliers, parts, and pricing
+- **Sales Order Tracking**: Record customer orders with commission percentages
+- **Commission Calculation**: Automatic commission calculation per line item
+- **Payment Recording**: Track commission payments from suppliers
+- **Payment Allocation**: Allocate payments to specific outstanding commission items
+- **Real-time Reconciliation**: View outstanding commissions and payment status
 
 ## Quick Start
 
@@ -14,23 +24,23 @@ A company relationship tracking application built with React TypeScript frontend
    npm run init-db
    ```
 
-3. **Development (runs both frontend and backend):**
+3. **Run migrations:**
+   ```bash
+   cd server && DATABASE_URL="postgresql://username@localhost:5432/comtrack" node ../migrations/migrate-commission.js
+   cd server && DATABASE_URL="postgresql://username@localhost:5432/comtrack" node ../migrations/migrate-commission-status.js
+   cd server && DATABASE_URL="postgresql://username@localhost:5432/comtrack" node ../migrations/migrate-commission-allocations.js
+   ```
+
+4. **Development (runs both frontend and backend):**
    ```bash
    npm run dev
    ```
 
-4. **Production build and start:**
+5. **Production build and start:**
    ```bash
    npm run build
    npm start
    ```
-
-## Features
-
-- Company workspace selection
-- Customer management (B2B)
-- Supplier management (B2B)
-- Modern UI with Tailwind CSS and shadcn/ui
 
 ## Tech Stack
 
@@ -38,13 +48,38 @@ A company relationship tracking application built with React TypeScript frontend
 - **Backend:** Node.js, TypeScript, PostgreSQL
 - **Database:** PostgreSQL
 
-## Scripts
+## Project Structure
 
-- `npm run dev` - Start development servers (frontend + backend)
-- `npm run build` - Build for production
-- `npm start` - Start production server
-- `npm run init-db` - Initialize database with demo data
+```
+comtrack2/
+├── client/                 # React frontend
+├── server/                # Node.js backend
+├── database/              # SQL files and initialization
+└── migrations/            # Database migrations
+```
+
+## Key Features
+
+### Commission Tracking
+- Track commission percentages per sales order line item
+- Automatic commission amount calculation
+- View outstanding commission by supplier
+
+### Payment Management
+- Record commission payments from suppliers
+- Allocate payments to specific line items
+- Track payment status (unallocated, partially allocated, fully allocated)
+
+### Supplier Portal
+- Individual supplier pages at `/suppliers/:supplierId`
+- View supplier parts, orders, and commission details
+- Record and allocate payments
 
 ## Database Setup
 
-Make sure PostgreSQL is running and update the `.env` file in the `server` directory with your database URL.
+1. Make sure PostgreSQL is running
+2. Create the database: `createdb comtrack`
+3. Update the `.env` file in the `server` directory with your database URL:
+   ```
+   DATABASE_URL=postgresql://username@localhost:5432/comtrack
+   ```

@@ -5,7 +5,6 @@ import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { Textarea } from './ui/textarea';
-import { Select } from './ui/select';
 
 interface PartFormProps {
   open: boolean;
@@ -95,11 +94,12 @@ const PartForm: React.FC<PartFormProps> = ({
           <div className="px-6 py-4 space-y-4">
             <div className="space-y-2">
               <Label htmlFor="supplier_id">Supplier *</Label>
-              <Select
+              <select
                 id="supplier_id"
                 value={formData.supplier_id}
                 onChange={handleChange('supplier_id')}
                 required
+                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <option value="">Select a supplier</option>
                 {suppliers.map(supplier => (
@@ -107,7 +107,7 @@ const PartForm: React.FC<PartFormProps> = ({
                     {supplier.name}
                   </option>
                 ))}
-              </Select>
+              </select>
             </div>
 
             <div className="space-y-2">
