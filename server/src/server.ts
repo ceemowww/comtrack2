@@ -24,6 +24,35 @@ const parseBody = (req: http.IncomingMessage): Promise<any> => {
   });
 };
 
+// Helper function to validate commission calculation inputs
+const validateCommissionInputs = (quantity: number, unitPrice: number, commissionPercentage: number) => {
+  const errors: string[] = [];
+  
+  if (quantity <= 0) {
+    errors.push('Quantity must be greater than 0');
+  }
+  
+  if (unitPrice < 0) {
+    errors.push('Unit price cannot be negative');
+  }
+  
+  if (commissionPercentage < 0 || commissionPercentage > 100) {
+    errors.push('Commission percentage must be between 0 and 100');
+  }
+  
+  return errors;
+};
+
+// Helper function to calculate commission amounts
+const calculateCommissionAmounts = (quantity: number, unitPrice: number, commissionPercentage: number) => {
+  const lineTotal = quantity * unitPrice;
+  const commissionAmount = lineTotal * commissionPercentage / 100;
+  return {
+    lineTotal,
+    commissionAmount
+  };
+};
+
 const server = http.createServer(async (req, res) => {
   const parsedUrl = url.parse(req.url || '', true);
   const pathname = parsedUrl.pathname;
@@ -506,6 +535,7 @@ const server = http.createServer(async (req, res) => {
             
             // Create sales order items
             let totalAmount = new Prisma.Decimal(0);
+            let totalCommission = new Prisma.Decimal(0);
             for (const item of items) {
               // Verify part and supplier belong to company
               const part = await tx.parts.findFirst({
@@ -522,6 +552,19 @@ const server = http.createServer(async (req, res) => {
               const unitPrice = item.unit_price || part.price || 0;
               const commissionPercentage = item.commission_percentage || 0;
               
+              // Validate inputs
+              const validationErrors = validateCommissionInputs(item.quantity, unitPrice, commissionPercentage);
+              if (validationErrors.length > 0) {
+                throw new Error(`Invalid values for part ${part.sku}: ${validationErrors.join(', ')}`);
+              }
+              
+              // Calculate line total and commission amount
+              const { lineTotal, commissionAmount } = calculateCommissionAmounts(
+                item.quantity, 
+                unitPrice, 
+                commissionPercentage
+              );
+              
               await tx.sales_order_items.create({
                 data: {
                   company_id: companyId,
@@ -530,17 +573,23 @@ const server = http.createServer(async (req, res) => {
                   supplier_id: item.supplier_id,
                   quantity: item.quantity,
                   unit_price: new Prisma.Decimal(unitPrice),
-                  commission_percentage: new Prisma.Decimal(commissionPercentage)
+                  line_total: new Prisma.Decimal(lineTotal),
+                  commission_percentage: new Prisma.Decimal(commissionPercentage),
+                  commission_amount: new Prisma.Decimal(commissionAmount)
                 }
               });
               
-              totalAmount = totalAmount.add(new Prisma.Decimal(item.quantity * unitPrice));
+              totalAmount = totalAmount.add(new Prisma.Decimal(lineTotal));
+              totalCommission = totalCommission.add(new Prisma.Decimal(commissionAmount));
             }
             
-            // Update total amount
+            // Update totals
             const updatedOrder = await tx.sales_orders.update({
               where: { id: order.id },
-              data: { total_amount: totalAmount }
+              data: { 
+                total_amount: totalAmount,
+                total_commission: totalCommission
+              }
             });
             
             return updatedOrder;

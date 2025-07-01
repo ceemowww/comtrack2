@@ -1,12 +1,14 @@
-import { Pool } from 'pg';
 import * as dotenv from 'dotenv';
+import { PrismaClient } from '@prisma/client';
 
 dotenv.config();
 
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
+// Initialize Prisma Client
+export const prisma = new PrismaClient({
+  log: process.env.NODE_ENV === 'development' ? ['query', 'info', 'warn', 'error'] : ['error'],
 });
 
-export const query = (text: string, params?: any[]) => pool.query(text, params);
-export { pool };
+// Ensure Prisma disconnects on app termination
+process.on('beforeExit', async () => {
+  await prisma.$disconnect();
+});

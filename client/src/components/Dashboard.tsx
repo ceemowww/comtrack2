@@ -1,15 +1,17 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api';
-import { Company, Customer, Supplier, Part, SalesOrder, CommissionOutstanding } from '../types';
+import { Company, Customer, Supplier, Part, SalesOrder, CommissionOutstanding, CommissionPayment } from '../types';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
-import { Building2, Users, Truck, Mail, Phone, MapPin, User, Package, DollarSign, Plus, Edit, Trash2, FileText, Calendar, CreditCard } from 'lucide-react';
+import { Building2, Users, Truck, Mail, Phone, MapPin, User, Package, DollarSign, Plus, Edit, Trash2, FileText, Calendar, CreditCard, Receipt } from 'lucide-react';
 import CustomerForm from './CustomerForm';
 import SupplierForm from './SupplierForm';
 import PartForm from './PartForm';
 import SalesOrderCreate from './SalesOrderCreate';
 import SalesOrderDetail from './SalesOrderDetail';
+import CommissionPaymentForm from './CommissionPaymentForm';
+import CommissionPaymentDetail from './CommissionPaymentDetail';
 
 interface DashboardProps {
   company: Company;
@@ -23,10 +25,13 @@ const Dashboard: React.FC<DashboardProps> = ({ company, onLogout }) => {
   const [parts, setParts] = useState<Part[]>([]);
   const [salesOrders, setSalesOrders] = useState<SalesOrder[]>([]);
   const [commissionOutstanding, setCommissionOutstanding] = useState<CommissionOutstanding[]>([]);
-  const [activeTab, setActiveTab] = useState<'customers' | 'suppliers' | 'parts' | 'sales-orders'>('sales-orders');
+  const [commissionPayments, setCommissionPayments] = useState<CommissionPayment[]>([]);
+  const [activeTab, setActiveTab] = useState<'customers' | 'suppliers' | 'parts' | 'sales-orders' | 'commission-payments'>('sales-orders');
   const [selectedSupplier, setSelectedSupplier] = useState<Supplier | null>(null);
   const [showCreateSalesOrder, setShowCreateSalesOrder] = useState(false);
   const [selectedOrderId, setSelectedOrderId] = useState<number | null>(null);
+  const [selectedPaymentId, setSelectedPaymentId] = useState<number | null>(null);
+  const [showCreateCommissionPayment, setShowCreateCommissionPayment] = useState(false);
   const [loading, setLoading] = useState(true);
   
   // Customer form state
@@ -44,21 +49,27 @@ const Dashboard: React.FC<DashboardProps> = ({ company, onLogout }) => {
   const [editingPart, setEditingPart] = useState<Part | null>(null);
   const [partLoading, setPartLoading] = useState(false);
 
+  // Commission payment form state
+  const [paymentFormOpen, setPaymentFormOpen] = useState(false);
+  const [paymentLoading, setPaymentLoading] = useState(false);
+
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const [customersData, suppliersData, partsData, salesOrdersData, commissionData] = await Promise.all([
+        const [customersData, suppliersData, partsData, salesOrdersData, commissionData, paymentsData] = await Promise.all([
           api.getCustomers(company.id),
           api.getSuppliers(company.id),
           api.getParts(company.id),
           api.getSalesOrders(company.id),
-          api.getCommissionOutstanding(company.id)
+          api.getCommissionOutstanding(company.id),
+          api.getCommissionPayments(company.id)
         ]);
         setCustomers(customersData);
         setSuppliers(suppliersData);
         setParts(partsData);
         setSalesOrders(salesOrdersData);
         setCommissionOutstanding(commissionData);
+        setCommissionPayments(paymentsData);
       } catch (err) {
         console.error('Failed to fetch data:', err);
       } finally {
@@ -257,6 +268,33 @@ const Dashboard: React.FC<DashboardProps> = ({ company, onLogout }) => {
     }
   };
 
+  // Commission Payment handlers
+  const handleCommissionPaymentSuccess = async () => {
+    try {
+      const paymentsData = await api.getCommissionPayments(company.id);
+      setCommissionPayments(paymentsData);
+      setShowCreateCommissionPayment(false);
+      setActiveTab('commission-payments');
+    } catch (error) {
+      console.error('Failed to refresh commission payments:', error);
+    }
+  };
+
+  const handleCreateCommissionPayment = async (paymentData: Omit<CommissionPayment, 'id' | 'company_id' | 'status' | 'created_at' | 'updated_at'>) => {
+    setPaymentLoading(true);
+    try {
+      const newPayment = await api.createCommissionPayment(company.id, paymentData);
+      setCommissionPayments(prev => [newPayment, ...prev]);
+      setPaymentFormOpen(false);
+    } catch (error) {
+      console.error('Failed to create commission payment:', error);
+      alert('Failed to create commission payment. Please try again.');
+      throw error;
+    } finally {
+      setPaymentLoading(false);
+    }
+  };
+
   // Show create sales order page
   if (showCreateSalesOrder) {
     return (
@@ -275,6 +313,17 @@ const Dashboard: React.FC<DashboardProps> = ({ company, onLogout }) => {
         companyId={company.id}
         orderId={selectedOrderId}
         onBack={() => setSelectedOrderId(null)}
+      />
+    );
+  }
+
+  // Show commission payment detail page
+  if (selectedPaymentId) {
+    return (
+      <CommissionPaymentDetail
+        companyId={company.id}
+        paymentId={selectedPaymentId}
+        onBack={() => setSelectedPaymentId(null)}
       />
     );
   }
@@ -319,6 +368,17 @@ const Dashboard: React.FC<DashboardProps> = ({ company, onLogout }) => {
             >
               <FileText className="inline h-4 w-4 mr-2" />
               Sales Orders ({salesOrders.length})
+            </button>
+            <button 
+              className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
+                activeTab === 'commission-payments' 
+                  ? 'border-blue-500 text-blue-600' 
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+              onClick={() => setActiveTab('commission-payments')}
+            >
+              <Receipt className="inline h-4 w-4 mr-2" />
+              Commission Payments ({commissionPayments.length})
             </button>
             <button 
               className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
@@ -457,6 +517,110 @@ const Dashboard: React.FC<DashboardProps> = ({ company, onLogout }) => {
                               onClick={() => handleDeleteSalesOrder(order.id)}
                             >
                               <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        ) : activeTab === 'commission-payments' ? (
+          <div>
+            <div className="mb-6 flex justify-between items-center">
+              <div>
+                <h2 className="text-2xl font-bold text-gray-900 mb-2">Commission Payments</h2>
+                <p className="text-gray-600">Track and manage commission payments to suppliers</p>
+              </div>
+              <Button onClick={() => setPaymentFormOpen(true)}>
+                <Plus className="h-4 w-4 mr-2" />
+                Record Payment
+              </Button>
+            </div>
+            <div className="bg-white shadow-sm rounded-lg overflow-hidden">
+              <div className="px-6 py-4 border-b border-gray-200">
+                <div className="grid grid-cols-12 gap-4 text-sm font-medium text-gray-500 uppercase tracking-wider">
+                  <div className="col-span-2">Reference</div>
+                  <div className="col-span-2">Supplier</div>
+                  <div className="col-span-2">Date</div>
+                  <div className="col-span-1">Status</div>
+                  <div className="col-span-2">Amount</div>
+                  <div className="col-span-2">Notes</div>
+                  <div className="col-span-1">Actions</div>
+                </div>
+              </div>
+              <div className="divide-y divide-gray-200">
+                {(commissionPayments || []).map(payment => {
+                  const statusColors = {
+                    received: 'bg-blue-100 text-blue-800',
+                    partially_allocated: 'bg-yellow-100 text-yellow-800',
+                    fully_allocated: 'bg-green-100 text-green-800'
+                  };
+                  
+                  return (
+                    <div key={payment.id} className="px-6 py-4 hover:bg-gray-50 transition-colors">
+                      <div className="grid grid-cols-12 gap-4 items-center">
+                        <div className="col-span-2">
+                          <div className="flex items-center">
+                            <Receipt className="h-4 w-4 mr-2 text-purple-600 flex-shrink-0" />
+                            <button 
+                              className="font-medium text-purple-600 hover:text-purple-800 hover:underline"
+                              onClick={() => setSelectedPaymentId(payment.id)}
+                            >
+                              {payment.reference_number || `Payment #${payment.id}`}
+                            </button>
+                          </div>
+                        </div>
+                        <div className="col-span-2">
+                          <div className="flex items-center">
+                            <Truck className="h-4 w-4 mr-2 text-gray-400 flex-shrink-0" />
+                            <span className="text-sm text-gray-600">{payment.supplier_name || 'Unknown Supplier'}</span>
+                          </div>
+                        </div>
+                        <div className="col-span-2">
+                          <div className="flex items-center">
+                            <Calendar className="h-4 w-4 mr-2 text-gray-400 flex-shrink-0" />
+                            <span className="text-sm text-gray-600">
+                              {payment.payment_date 
+                                ? new Date(payment.payment_date).toLocaleDateString()
+                                : 'No date'}
+                            </span>
+                          </div>
+                        </div>
+                        <div className="col-span-1">
+                          <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                            statusColors[(payment.status || 'unallocated') as keyof typeof statusColors] || 'bg-gray-100 text-gray-800'
+                          }`}>
+                            {(payment.status || 'unallocated').replace('_', ' ')}
+                          </span>
+                        </div>
+                        <div className="col-span-2">
+                          <div className="flex items-center">
+                            <DollarSign className="h-4 w-4 mr-1 text-gray-400" />
+                            <span className="text-sm font-medium text-gray-900">
+                              {payment.total_amount != null 
+                                ? (typeof payment.total_amount === 'string' 
+                                   ? parseFloat(payment.total_amount).toFixed(2) 
+                                   : payment.total_amount.toFixed(2))
+                                : '0.00'}
+                            </span>
+                          </div>
+                        </div>
+                        <div className="col-span-2">
+                          <span className="text-sm text-gray-500 truncate" title={payment.notes || ''}>
+                            {payment.notes || '-'}
+                          </span>
+                        </div>
+                        <div className="col-span-1">
+                          <div className="flex space-x-1">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => setSelectedPaymentId(payment.id)}
+                            >
+                              <FileText className="h-4 w-4" />
                             </Button>
                           </div>
                         </div>
@@ -734,6 +898,15 @@ const Dashboard: React.FC<DashboardProps> = ({ company, onLogout }) => {
         suppliers={suppliers}
         onSubmit={editingPart ? handleUpdatePart : handleCreatePart}
         loading={partLoading}
+      />
+
+      {/* Commission Payment Form Modal */}
+      <CommissionPaymentForm
+        open={paymentFormOpen}
+        onOpenChange={setPaymentFormOpen}
+        suppliers={suppliers}
+        onSubmit={handleCreateCommissionPayment}
+        loading={paymentLoading}
       />
     </div>
   );

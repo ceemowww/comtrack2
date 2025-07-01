@@ -45,7 +45,7 @@ A comprehensive commission tracking system for managing supplier payments and re
 ## Tech Stack
 
 - **Frontend:** React, TypeScript, Tailwind CSS, shadcn/ui
-- **Backend:** Node.js, TypeScript, PostgreSQL
+- **Backend:** Node.js, TypeScript, PostgreSQL, Prisma ORM
 - **Database:** PostgreSQL
 
 ## Project Structure
@@ -54,8 +54,11 @@ A comprehensive commission tracking system for managing supplier payments and re
 comtrack2/
 ├── client/                 # React frontend
 ├── server/                # Node.js backend
+│   └── prisma/            # Prisma schema and migrations
 ├── database/              # SQL files and initialization
-└── migrations/            # Database migrations
+├── migrations/            # Database migrations
+├── DATABASE_SCHEMA.md     # Complete database schema documentation
+└── CLAUDE.md              # Development instructions and Prisma setup
 ```
 
 ## Key Features
