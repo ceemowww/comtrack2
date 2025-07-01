@@ -10,7 +10,6 @@ import SupplierForm from './SupplierForm';
 import PartForm from './PartForm';
 import SalesOrderCreate from './SalesOrderCreate';
 import SalesOrderDetail from './SalesOrderDetail';
-import CommissionPaymentForm from './CommissionPaymentForm';
 import CommissionPaymentDetail from './CommissionPaymentDetail';
 
 interface DashboardProps {
@@ -49,10 +48,6 @@ const Dashboard: React.FC<DashboardProps> = ({ company, onLogout }) => {
   const [editingPart, setEditingPart] = useState<Part | null>(null);
   const [partLoading, setPartLoading] = useState(false);
 
-
-  // Commission payment form state
-  const [paymentFormOpen, setPaymentFormOpen] = useState(false);
-  const [paymentLoading, setPaymentLoading] = useState(false);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -293,20 +288,6 @@ const Dashboard: React.FC<DashboardProps> = ({ company, onLogout }) => {
     }
   };
 
-  const handleCreateCommissionPayment = async (paymentData: Omit<CommissionPayment, 'id' | 'company_id' | 'status' | 'created_at' | 'updated_at'>) => {
-    setPaymentLoading(true);
-    try {
-      const newPayment = await api.createCommissionPayment(company.id, paymentData);
-      setCommissionPayments(prev => [newPayment, ...prev]);
-      setPaymentFormOpen(false);
-    } catch (error) {
-      console.error('Failed to create commission payment:', error);
-      alert('Failed to create commission payment. Please try again.');
-      throw error;
-    } finally {
-      setPaymentLoading(false);
-    }
-  };
 
   // Show create sales order page
   if (showCreateSalesOrder) {
@@ -547,7 +528,7 @@ const Dashboard: React.FC<DashboardProps> = ({ company, onLogout }) => {
                 <h2 className="text-2xl font-bold text-gray-900 mb-2">Commission Payments</h2>
                 <p className="text-gray-600">Track and manage commission payments to suppliers</p>
               </div>
-              <Button onClick={() => setPaymentFormOpen(true)}>
+              <Button onClick={() => navigate('/commission-payments/create')}>
                 <Plus className="h-4 w-4 mr-2" />
                 Record Payment
               </Button>
@@ -913,14 +894,6 @@ const Dashboard: React.FC<DashboardProps> = ({ company, onLogout }) => {
         loading={partLoading}
       />
 
-      {/* Commission Payment Form Modal */}
-      <CommissionPaymentForm
-        open={paymentFormOpen}
-        onOpenChange={setPaymentFormOpen}
-        suppliers={suppliers}
-        onSubmit={handleCreateCommissionPayment}
-        loading={paymentLoading}
-      />
     </div>
   );
 };
