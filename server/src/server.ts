@@ -629,6 +629,136 @@ const server = http.createServer(async (req, res) => {
           }
         }
       }
+      else if (pathname?.match(/^\/api\/companies\/\d+\/sales-orders\/\d+$/) && method === 'PUT') {
+        const pathParts = pathname.split('/');
+        const companyId = parseInt(pathParts[3]);
+        const orderId = parseInt(pathParts[5]);
+        const body = await parseBody(req);
+        const { customer_id, po_number, order_date, status, notes, items } = body;
+        
+        if (!customer_id || !po_number || !items || items.length === 0) {
+          res.writeHead(400);
+          res.end(JSON.stringify({ error: 'customer_id, po_number, and items are required' }));
+          return;
+        }
+        
+        // Verify customer belongs to company
+        const customer = await prisma.customers.findFirst({
+          where: { id: customer_id, company_id: companyId }
+        });
+        if (!customer) {
+          res.writeHead(400);
+          res.end(JSON.stringify({ error: 'Invalid customer for this company' }));
+          return;
+        }
+        
+        try {
+          // Use transaction for atomicity
+          const result = await prisma.$transaction(async (tx) => {
+            // First, verify the order exists and belongs to company
+            const existingOrder = await tx.sales_orders.findFirst({
+              where: { id: orderId, company_id: companyId }
+            });
+            if (!existingOrder) {
+              throw new Error('Sales order not found');
+            }
+            
+            // Delete existing order items
+            await tx.sales_order_items.deleteMany({
+              where: { sales_order_id: orderId, company_id: companyId }
+            });
+            
+            // Update sales order
+            const order = await tx.sales_orders.update({
+              where: { id: orderId },
+              data: {
+                customer_id,
+                po_number,
+                order_date: order_date ? new Date(order_date) : existingOrder.order_date,
+                status: status || existingOrder.status,
+                notes: notes || null,
+                total_amount: 0 // Will update after items
+              }
+            });
+            
+            // Create new sales order items
+            let totalAmount = new Prisma.Decimal(0);
+            let totalCommission = new Prisma.Decimal(0);
+            for (const item of items) {
+              // Verify part and supplier belong to company
+              const part = await tx.parts.findFirst({
+                where: { id: item.part_id, company_id: companyId }
+              });
+              const supplier = await tx.suppliers.findFirst({
+                where: { id: item.supplier_id, company_id: companyId }
+              });
+              
+              if (!part || !supplier) {
+                throw new Error(`Invalid part or supplier: part_id=${item.part_id}, supplier_id=${item.supplier_id}`);
+              }
+              
+              // Server-side calculation (source of truth)
+              const quantity = item.quantity;
+              const unitPrice = new Prisma.Decimal(item.unit_price);
+              const lineTotal = unitPrice.mul(quantity);
+              const commissionPercentage = new Prisma.Decimal(item.commission_percentage || 0);
+              const commissionAmount = lineTotal.mul(commissionPercentage).div(100);
+              
+              // Validate ranges
+              if (quantity <= 0) {
+                throw new Error('Quantity must be positive');
+              }
+              if (unitPrice.lt(0)) {
+                throw new Error('Unit price cannot be negative');
+              }
+              if (commissionPercentage.lt(0) || commissionPercentage.gt(100)) {
+                throw new Error('Commission percentage must be between 0 and 100');
+              }
+              
+              await tx.sales_order_items.create({
+                data: {
+                  company_id: companyId,
+                  sales_order_id: order.id,
+                  part_id: item.part_id,
+                  supplier_id: item.supplier_id,
+                  quantity: quantity,
+                  unit_price: unitPrice,
+                  line_total: lineTotal,
+                  commission_percentage: commissionPercentage,
+                  commission_amount: commissionAmount
+                }
+              });
+              
+              totalAmount = totalAmount.add(lineTotal);
+              totalCommission = totalCommission.add(commissionAmount);
+            }
+            
+            // Update order totals
+            const updatedOrder = await tx.sales_orders.update({
+              where: { id: order.id },
+              data: {
+                total_amount: totalAmount,
+                total_commission: totalCommission
+              }
+            });
+            
+            return updatedOrder;
+          });
+          
+          res.writeHead(200);
+          res.end(JSON.stringify(result));
+        } catch (error: any) {
+          if (error.message === 'Sales order not found') {
+            res.writeHead(404);
+            res.end(JSON.stringify({ error: 'Sales order not found' }));
+          } else if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+            res.writeHead(400);
+            res.end(JSON.stringify({ error: 'PO number already exists for this customer' }));
+          } else {
+            throw error;
+          }
+        }
+      }
       // Commission Outstanding endpoints
       else if (pathname?.match(/^\/api\/companies\/\d+\/commission-outstanding$/) && method === 'GET') {
         const companyId = parseInt(pathname.split('/')[3]);

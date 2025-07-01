@@ -10,13 +10,13 @@
     "init-db": "node ../database/init-db.js"
   },
   "dependencies": {
-    "@prisma/client": "^6.10.1",
+    "@prisma/client": "^6.11.0",
     "dotenv": "^16.6.1"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
     "nodemon": "^2.0.22",
-    "prisma": "^6.10.1",
+    "prisma": "^6.11.0",
     "ts-node": "^10.9.0",
     "typescript": "^5.0.0"
   }
