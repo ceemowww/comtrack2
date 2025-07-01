@@ -253,6 +253,17 @@ const Dashboard: React.FC<DashboardProps> = ({ company, onLogout }) => {
     }
   };
 
+  const handleSalesOrderDetailBack = async () => {
+    // Refresh sales orders data when returning from detail page
+    try {
+      const salesOrdersData = await api.getSalesOrders(company.id);
+      setSalesOrders(salesOrdersData);
+    } catch (error) {
+      console.error('Failed to refresh sales orders:', error);
+    }
+    setSelectedOrderId(null);
+  };
+
   const handleDeleteSalesOrder = async (orderId: number) => {
     if (!confirm('Are you sure you want to delete this sales order?')) return;
     
@@ -263,6 +274,7 @@ const Dashboard: React.FC<DashboardProps> = ({ company, onLogout }) => {
       console.error('Failed to delete sales order:', error);
     }
   };
+
 
   // Commission Payment handlers
   const handleCommissionPaymentSuccess = async () => {
@@ -294,7 +306,7 @@ const Dashboard: React.FC<DashboardProps> = ({ company, onLogout }) => {
       <SalesOrderDetail
         companyId={company.id}
         orderId={selectedOrderId}
-        onBack={() => setSelectedOrderId(null)}
+        onBack={handleSalesOrderDetailBack}
       />
     );
   }

@@ -94,6 +94,11 @@ export const api = {
     return response.data;
   },
 
+  updateSalesOrder: async (companyId: number, orderId: number, orderData: CreateSalesOrderData): Promise<SalesOrder> => {
+    const response = await axios.put(`${API_BASE}/companies/${companyId}/sales-orders/${orderId}`, orderData);
+    return response.data;
+  },
+
   deleteSalesOrder: async (companyId: number, orderId: number): Promise<void> => {
     await axios.delete(`${API_BASE}/companies/${companyId}/sales-orders/${orderId}`);
   },
@@ -193,6 +198,7 @@ export const deletePart = api.deletePart;
 export const getSalesOrders = api.getSalesOrders;
 export const getSalesOrder = api.getSalesOrder;
 export const createSalesOrder = api.createSalesOrder;
+export const updateSalesOrder = api.updateSalesOrder;
 export const deleteSalesOrder = api.deleteSalesOrder;
 export const getCommissionOutstanding = api.getCommissionOutstanding;
 export const getCommissionOutstandingDetails = api.getCommissionOutstandingDetails;
