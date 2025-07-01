@@ -1,11 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '../api';
-import { Supplier, Part, SalesOrder, CommissionOutstanding, CommissionOutstandingDetail, CommissionPayment } from '../types';
+import { Supplier, Part, SalesOrderWithItems, SupplierCommissionSummary } from '../types';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
-import { ArrowLeft, Package, FileText, DollarSign, Calendar, User, CreditCard, Plus } from 'lucide-react';
-import CommissionPaymentForm from './CommissionPaymentForm';
-import CommissionAllocationTest from './CommissionAllocationTest';
+import { ArrowLeft, Package, FileText, DollarSign, Calendar, User } from 'lucide-react';
 
 interface SupplierDetailProps {
   supplier: Supplier;
@@ -15,42 +13,32 @@ interface SupplierDetailProps {
 
 const SupplierDetail: React.FC<SupplierDetailProps> = ({ supplier, companyId, onBack }) => {
   const [parts, setParts] = useState<Part[]>([]);
-  const [salesOrders, setSalesOrders] = useState<SalesOrder[]>([]);
-  const [commissionDetails, setCommissionDetails] = useState<CommissionOutstandingDetail[]>([]);
-  const [commissionPayments, setCommissionPayments] = useState<CommissionPayment[]>([]);
+  const [salesOrders, setSalesOrders] = useState<SalesOrderWithItems[]>([]);
+  const [commissionSummary, setCommissionSummary] = useState<SupplierCommissionSummary | null>(null);
   const [loading, setLoading] = useState(true);
-  const [activeSection, setActiveSection] = useState<'overview' | 'parts' | 'orders' | 'commission' | 'payments'>('overview');
-  
-  // Payment form state
-  const [paymentFormOpen, setPaymentFormOpen] = useState(false);
-  const [allocationFormOpen, setAllocationFormOpen] = useState(false);
-  const [selectedPayment, setSelectedPayment] = useState<CommissionPayment | null>(null);
-  const [paymentLoading, setPaymentLoading] = useState(false);
+  const [activeSection, setActiveSection] = useState<'overview' | 'parts' | 'orders'>('overview');
 
   useEffect(() => {
     const fetchSupplierData = async () => {
       try {
-        const [allParts, allOrders, commissionData, paymentsData] = await Promise.all([
+        const [allParts, allOrders, commissionData] = await Promise.all([
           api.getParts(companyId),
-          api.getSalesOrders(companyId),
-          api.getCommissionOutstandingDetails(companyId, supplier.id),
-          api.getCommissionPayments(companyId)
+          api.getSalesOrdersWithItems(companyId),
+          api.getSupplierCommissionSummary(companyId, supplier.id)
         ]);
         
         // Filter parts for this supplier
         const supplierParts = allParts.filter(part => part.supplier_id === supplier.id);
         setParts(supplierParts);
         
-        // Filter sales orders that contain items from this supplier
-        const supplierOrderIds = new Set(commissionData.map(detail => detail.sales_order_id));
-        const supplierOrders = allOrders.filter(order => supplierOrderIds.has(order.id));
+        // Filter sales orders to only show orders containing this supplier's parts
+        const supplierOrders = allOrders.filter(order => 
+          order.items && 
+          order.items.some(item => item.supplier_id === supplier.id)
+        );
         setSalesOrders(supplierOrders);
         
-        setCommissionDetails(commissionData);
-        
-        // Filter payments for this supplier
-        const supplierPayments = paymentsData.filter(payment => payment.supplier_id === supplier.id);
-        setCommissionPayments(supplierPayments);
+        setCommissionSummary(commissionData);
       } catch (err) {
         console.error('Failed to fetch supplier data:', err);
       } finally {
@@ -61,53 +49,6 @@ const SupplierDetail: React.FC<SupplierDetailProps> = ({ supplier, companyId, on
     fetchSupplierData();
   }, [companyId, supplier.id]);
 
-  const totalCommissionOutstanding = commissionDetails.reduce((sum, detail) => sum + Number(detail.outstanding_amount), 0);
-  const totalCommissionEarned = commissionDetails.reduce((sum, detail) => sum + Number(detail.commission_amount), 0);
-  const totalCommissionPaid = commissionDetails.reduce((sum, detail) => sum + Number(detail.paid_amount), 0);
-
-  // Payment handlers
-  const handleCreatePayment = async (paymentData: Omit<CommissionPayment, 'id' | 'company_id' | 'status' | 'created_at' | 'updated_at'>) => {
-    setPaymentLoading(true);
-    try {
-      const newPayment = await api.createCommissionPayment(companyId, paymentData);
-      setCommissionPayments(prev => [newPayment, ...prev]);
-      setPaymentFormOpen(false);
-    } catch (error) {
-      console.error('Failed to create payment:', error);
-      throw error;
-    } finally {
-      setPaymentLoading(false);
-    }
-  };
-
-  const handleAllocatePayment = async (allocation: {commission_payment_id: number, sales_order_item_id: number, allocated_amount: number, notes?: string}) => {
-    setPaymentLoading(true);
-    try {
-      await api.createCommissionAllocation(companyId, allocation);
-      
-      // Refresh data to show updated allocations
-      const [updatedCommissionData, updatedPaymentsData] = await Promise.all([
-        api.getCommissionOutstandingDetails(companyId, supplier.id),
-        api.getCommissionPayments(companyId)
-      ]);
-      
-      setCommissionDetails(updatedCommissionData);
-      const supplierPayments = updatedPaymentsData.filter(payment => payment.supplier_id === supplier.id);
-      setCommissionPayments(supplierPayments);
-      
-      // Don't close the modal - let user allocate more if needed
-    } catch (error) {
-      console.error('Failed to allocate payment:', error);
-      throw error;
-    } finally {
-      setPaymentLoading(false);
-    }
-  };
-
-  const openAllocationForm = (payment: CommissionPayment) => {
-    setSelectedPayment(payment);
-    setAllocationFormOpen(true);
-  };
 
   if (loading) {
     return <div className="flex items-center justify-center h-64">Loading supplier details...</div>;
@@ -136,8 +77,6 @@ const SupplierDetail: React.FC<SupplierDetailProps> = ({ supplier, companyId, on
             { id: 'overview', label: 'Overview', icon: User },
             { id: 'parts', label: `Parts (${parts.length})`, icon: Package },
             { id: 'orders', label: `Orders (${salesOrders.length})`, icon: FileText },
-            { id: 'commission', label: 'Commission', icon: DollarSign },
-            { id: 'payments', label: `Payments (${commissionPayments.length})`, icon: CreditCard }
           ].map(({ id, label, icon: Icon }) => (
             <button
               key={id}
@@ -195,18 +134,32 @@ const SupplierDetail: React.FC<SupplierDetailProps> = ({ supplier, companyId, on
               <CardTitle>Commission Summary</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div>
-                <label className="text-sm font-medium text-gray-500">Total Commission Earned</label>
-                <p className="text-2xl font-bold text-gray-900">${totalCommissionEarned.toFixed(2)}</p>
-              </div>
-              <div>
-                <label className="text-sm font-medium text-gray-500">Commission Paid</label>
-                <p className="text-lg font-semibold text-green-600">${totalCommissionPaid.toFixed(2)}</p>
-              </div>
-              <div>
-                <label className="text-sm font-medium text-gray-500">Outstanding Commission</label>
-                <p className="text-lg font-semibold text-red-600">${totalCommissionOutstanding.toFixed(2)}</p>
-              </div>
+              {commissionSummary ? (
+                <>
+                  <div>
+                    <label className="text-sm font-medium text-gray-500">Total Commission Generated</label>
+                    <p className="text-2xl font-bold text-gray-900">${commissionSummary.total_commission_generated.toFixed(2)}</p>
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium text-gray-500">Commission Paid</label>
+                    <p className="text-lg font-semibold text-green-600">${commissionSummary.total_commission_paid.toFixed(2)}</p>
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium text-gray-500">Commission Allocated</label>
+                    <p className="text-lg font-semibold text-blue-600">${commissionSummary.total_commission_allocated.toFixed(2)}</p>
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium text-gray-500">Outstanding Commission</label>
+                    <p className="text-lg font-semibold text-red-600">${commissionSummary.commission_outstanding.toFixed(2)}</p>
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium text-gray-500">Unallocated Payments</label>
+                    <p className="text-lg font-semibold text-orange-600">${commissionSummary.unallocated_payments.toFixed(2)}</p>
+                  </div>
+                </>
+              ) : (
+                <div className="text-center py-4 text-gray-500">Loading commission data...</div>
+              )}
             </CardContent>
           </Card>
         </div>
@@ -302,151 +255,8 @@ const SupplierDetail: React.FC<SupplierDetailProps> = ({ supplier, companyId, on
         </Card>
       )}
 
-      {activeSection === 'commission' && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Commission Details</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-gray-200">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">PO Number</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Customer</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Part</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Qty</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Rate</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Commission</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Paid</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Outstanding</th>
-                  </tr>
-                </thead>
-                <tbody className="bg-white divide-y divide-gray-200">
-                  {commissionDetails.map(detail => (
-                    <tr key={detail.sales_order_item_id} className="hover:bg-gray-50">
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{detail.po_number}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{detail.customer_name}</td>
-                      <td className="px-6 py-4 text-sm text-gray-900">
-                        <div>{detail.part_name}</div>
-                        <div className="text-xs text-gray-500">{detail.sku}</div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{detail.quantity}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{Number(detail.commission_percentage)}%</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${Number(detail.commission_amount).toFixed(2)}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-green-600">${Number(detail.paid_amount).toFixed(2)}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-red-600">
-                        ${Number(detail.outstanding_amount).toFixed(2)}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              {commissionDetails.length === 0 && (
-                <div className="text-center py-8 text-gray-500">
-                  No commission details found for this supplier
-                </div>
-              )}
-            </div>
-          </CardContent>
-        </Card>
-      )}
 
-      {activeSection === 'payments' && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center justify-between">
-              Commission Payments
-              <Button onClick={() => setPaymentFormOpen(true)}>
-                <Plus className="h-4 w-4 mr-2" />
-                Record Payment
-              </Button>
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-gray-200">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Amount</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Reference</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="bg-white divide-y divide-gray-200">
-                  {commissionPayments.map(payment => (
-                    <tr key={payment.id} className="hover:bg-gray-50">
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                        {new Date(payment.payment_date).toLocaleDateString()}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                        ${Number(payment.total_amount).toFixed(2)}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        {payment.reference_number || '-'}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
-                          payment.status === 'fully_allocated' ? 'bg-green-100 text-green-800' :
-                          payment.status === 'partially_allocated' ? 'bg-yellow-100 text-yellow-800' :
-                          'bg-gray-100 text-gray-800'
-                        }`}>
-                          {payment.status.replace('_', ' ')}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => openAllocationForm(payment)}
-                          disabled={commissionDetails.length === 0}
-                        >
-                          {payment.status === 'unallocated' ? 'Allocate' : 'Re-allocate'}
-                        </Button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              {commissionPayments.length === 0 && (
-                <div className="text-center py-8 text-gray-500">
-                  <p>No commission payments recorded for this supplier</p>
-                  <Button 
-                    className="mt-4" 
-                    onClick={() => setPaymentFormOpen(true)}
-                  >
-                    <Plus className="h-4 w-4 mr-2" />
-                    Record First Payment
-                  </Button>
-                </div>
-              )}
-            </div>
-          </CardContent>
-        </Card>
-      )}
 
-      {/* Payment Form Modal */}
-      <CommissionPaymentForm
-        open={paymentFormOpen}
-        onOpenChange={setPaymentFormOpen}
-        suppliers={[supplier]} // Only show current supplier
-        onSubmit={handleCreatePayment}
-        loading={paymentLoading}
-      />
-
-      {/* Payment Allocation Modal */}
-      {selectedPayment && (
-        <CommissionAllocationTest
-          open={allocationFormOpen}
-          onOpenChange={setAllocationFormOpen}
-          payment={selectedPayment}
-          outstandingItems={commissionDetails}
-          onSubmit={handleAllocatePayment}
-          loading={paymentLoading}
-        />
-      )}
     </div>
   );
 };

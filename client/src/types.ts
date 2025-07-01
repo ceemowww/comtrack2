@@ -94,10 +94,22 @@ export interface CreateSalesOrderData {
   }[];
 }
 
+export interface CommissionPaymentItem {
+  id: number;
+  company_id: number;
+  commission_payment_id: number;
+  amount: number;
+  description?: string;
+  notes?: string;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface CommissionPayment {
   id: number;
   company_id: number;
   supplier_id: number;
+  supplier_name?: string;  // Added via JOIN in API responses
   payment_date: string;
   total_amount: number;  // API returns this mapped from payment_amount
   reference_number?: string;  // API returns this mapped from payment_reference
@@ -107,10 +119,16 @@ export interface CommissionPayment {
   updated_at: string;
 }
 
+export interface CommissionPaymentWithItems extends CommissionPayment {
+  items: CommissionPaymentItem[];
+  total_line_items: number;  // Sum of all line item amounts
+  remaining_amount: number;  // total_amount - total_line_items
+}
+
 export interface CommissionAllocation {
   id: number;
   company_id: number;
-  commission_payment_id: number;
+  commission_payment_item_id: number;  // Updated to reference payment items
   sales_order_item_id: number;
   allocated_amount: number;
   allocation_date: string;
@@ -142,4 +160,13 @@ export interface CommissionOutstandingDetail {
   commission_amount: number;
   paid_amount: number;
   outstanding_amount: number;
+}
+
+export interface SupplierCommissionSummary {
+  supplier_id: number;
+  total_commission_generated: number;
+  total_commission_paid: number;
+  total_commission_allocated: number;
+  commission_outstanding: number;
+  unallocated_payments: number;
 }

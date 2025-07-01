@@ -1,6 +1,7 @@
 import axios from 'axios';
 import { Company, Customer, Supplier, Part, SalesOrder, SalesOrderWithItems, CreateSalesOrderData, 
-         CommissionOutstanding, CommissionOutstandingDetail, CommissionPayment, CommissionAllocation } from './types';
+         CommissionOutstanding, CommissionOutstandingDetail, CommissionPayment, CommissionPaymentWithItems, 
+         CommissionPaymentItem, CommissionAllocation, SupplierCommissionSummary } from './types';
 
 const API_BASE = '/api';
 
@@ -72,8 +73,14 @@ export const api = {
   },
 
   // Sales Orders
-  getSalesOrders: async (companyId: number): Promise<SalesOrder[]> => {
-    const response = await axios.get(`${API_BASE}/companies/${companyId}/sales-orders`);
+  getSalesOrders: async (companyId: number, includeItems?: boolean): Promise<SalesOrder[]> => {
+    const params = includeItems ? '?include_items=true' : '';
+    const response = await axios.get(`${API_BASE}/companies/${companyId}/sales-orders${params}`);
+    return response.data;
+  },
+
+  getSalesOrdersWithItems: async (companyId: number): Promise<SalesOrderWithItems[]> => {
+    const response = await axios.get(`${API_BASE}/companies/${companyId}/sales-orders?include_items=true`);
     return response.data;
   },
 
@@ -113,7 +120,27 @@ export const api = {
     return response.data;
   },
 
-  createCommissionAllocation: async (companyId: number, allocation: {commission_payment_id: number, sales_order_item_id: number, allocated_amount: number, notes?: string}): Promise<CommissionAllocation> => {
+  // Commission Payment Items
+  getCommissionPaymentItems: async (companyId: number, paymentId: number): Promise<CommissionPaymentItem[]> => {
+    const response = await axios.get(`${API_BASE}/companies/${companyId}/commission-payments/${paymentId}/items`);
+    return response.data;
+  },
+
+  createCommissionPaymentItem: async (companyId: number, paymentId: number, item: Omit<CommissionPaymentItem, 'id' | 'company_id' | 'commission_payment_id' | 'created_at' | 'updated_at'>): Promise<CommissionPaymentItem> => {
+    const response = await axios.post(`${API_BASE}/companies/${companyId}/commission-payments/${paymentId}/items`, item);
+    return response.data;
+  },
+
+  updateCommissionPaymentItem: async (companyId: number, paymentId: number, itemId: number, item: Omit<CommissionPaymentItem, 'id' | 'company_id' | 'commission_payment_id' | 'created_at' | 'updated_at'>): Promise<CommissionPaymentItem> => {
+    const response = await axios.put(`${API_BASE}/companies/${companyId}/commission-payments/${paymentId}/items/${itemId}`, item);
+    return response.data;
+  },
+
+  deleteCommissionPaymentItem: async (companyId: number, paymentId: number, itemId: number): Promise<void> => {
+    await axios.delete(`${API_BASE}/companies/${companyId}/commission-payments/${paymentId}/items/${itemId}`);
+  },
+
+  createCommissionAllocation: async (companyId: number, allocation: {commission_payment_item_id: number, sales_order_item_id: number, allocated_amount: number, notes?: string}): Promise<CommissionAllocation> => {
     const response = await axios.post(`${API_BASE}/companies/${companyId}/commission-allocations`, allocation);
     return response.data;
   },
@@ -123,8 +150,18 @@ export const api = {
     return response.data;
   },
 
+  getCommissionPaymentItemAllocations: async (companyId: number, paymentItemId: number): Promise<CommissionAllocation[]> => {
+    const response = await axios.get(`${API_BASE}/companies/${companyId}/commission-payment-items/${paymentItemId}/allocations`);
+    return response.data;
+  },
+
   getPaymentAllocationSummary: async (companyId: number, supplierId: number): Promise<any[]> => {
     const response = await axios.get(`${API_BASE}/companies/${companyId}/suppliers/${supplierId}/payment-allocation-summary`);
+    return response.data;
+  },
+
+  getSupplierCommissionSummary: async (companyId: number, supplierId: number): Promise<SupplierCommissionSummary> => {
+    const response = await axios.get(`${API_BASE}/companies/${companyId}/suppliers/${supplierId}/commission-summary`);
     return response.data;
   }
 };
@@ -151,6 +188,12 @@ export const getCommissionOutstanding = api.getCommissionOutstanding;
 export const getCommissionOutstandingDetails = api.getCommissionOutstandingDetails;
 export const getCommissionPayments = api.getCommissionPayments;
 export const createCommissionPayment = api.createCommissionPayment;
+export const getCommissionPaymentItems = api.getCommissionPaymentItems;
+export const createCommissionPaymentItem = api.createCommissionPaymentItem;
+export const updateCommissionPaymentItem = api.updateCommissionPaymentItem;
+export const deleteCommissionPaymentItem = api.deleteCommissionPaymentItem;
 export const createCommissionAllocation = api.createCommissionAllocation;
 export const getCommissionPaymentAllocations = api.getCommissionPaymentAllocations;
+export const getCommissionPaymentItemAllocations = api.getCommissionPaymentItemAllocations;
 export const getPaymentAllocationSummary = api.getPaymentAllocationSummary;
+export const getSupplierCommissionSummary = api.getSupplierCommissionSummary;

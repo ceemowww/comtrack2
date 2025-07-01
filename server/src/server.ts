@@ -2,8 +2,8 @@ import * as http from 'http';
 import * as url from 'url';
 import * as path from 'path';
 import * as fs from 'fs';
-import { query } from './db';
-import { Company, Customer, Supplier } from './types';
+import { prisma } from './db';
+import { Prisma } from '@prisma/client';
 
 const PORT = process.env.PORT || 5000;
 const CLIENT_BUILD_PATH = path.join(__dirname, '../../client/build');
@@ -44,19 +44,26 @@ const server = http.createServer(async (req, res) => {
     if (pathname?.startsWith('/api/')) {
       res.setHeader('Content-Type', 'application/json');
       
+      // Companies endpoints
       if (pathname === '/api/companies' && method === 'GET') {
-        const result = await query('SELECT * FROM companies ORDER BY name');
+        const companies = await prisma.companies.findMany({
+          orderBy: { name: 'asc' }
+        });
         res.writeHead(200);
-        res.end(JSON.stringify(result.rows));
+        res.end(JSON.stringify(companies));
       } 
+      // Customers endpoints
       else if (pathname?.startsWith('/api/companies/') && pathname.endsWith('/customers') && method === 'GET') {
-        const companyId = pathname.split('/')[3];
-        const result = await query('SELECT * FROM customers WHERE company_id = $1 ORDER BY name', [companyId]);
+        const companyId = parseInt(pathname.split('/')[3]);
+        const customers = await prisma.customers.findMany({
+          where: { company_id: companyId },
+          orderBy: { name: 'asc' }
+        });
         res.writeHead(200);
-        res.end(JSON.stringify(result.rows));
+        res.end(JSON.stringify(customers));
       }
       else if (pathname?.startsWith('/api/companies/') && pathname.endsWith('/customers') && method === 'POST') {
-        const companyId = pathname.split('/')[3];
+        const companyId = parseInt(pathname.split('/')[3]);
         const body = await parseBody(req);
         const { name, email, phone, address } = body;
         
@@ -66,17 +73,22 @@ const server = http.createServer(async (req, res) => {
           return;
         }
         
-        const result = await query(
-          'INSERT INTO customers (company_id, name, email, phone, address) VALUES ($1, $2, $3, $4, $5) RETURNING *',
-          [companyId, name, email || null, phone || null, address || null]
-        );
+        const customer = await prisma.customers.create({
+          data: {
+            company_id: companyId,
+            name,
+            email: email || null,
+            phone: phone || null,
+            address: address || null
+          }
+        });
         res.writeHead(201);
-        res.end(JSON.stringify(result.rows[0]));
+        res.end(JSON.stringify(customer));
       }
       else if (pathname?.match(/^\/api\/companies\/\d+\/customers\/\d+$/) && method === 'PUT') {
         const pathParts = pathname.split('/');
-        const companyId = pathParts[3];
-        const customerId = pathParts[5];
+        const companyId = parseInt(pathParts[3]);
+        const customerId = parseInt(pathParts[5]);
         const body = await parseBody(req);
         const { name, email, phone, address } = body;
         
@@ -86,47 +98,66 @@ const server = http.createServer(async (req, res) => {
           return;
         }
         
-        const result = await query(
-          'UPDATE customers SET name = $1, email = $2, phone = $3, address = $4, updated_at = CURRENT_TIMESTAMP WHERE id = $5 AND company_id = $6 RETURNING *',
-          [name, email || null, phone || null, address || null, customerId, companyId]
-        );
-        
-        if (result.rows.length === 0) {
-          res.writeHead(404);
-          res.end(JSON.stringify({ error: 'Customer not found' }));
-          return;
+        try {
+          const customer = await prisma.customers.update({
+            where: { 
+              id: customerId,
+              company_id: companyId
+            },
+            data: {
+              name,
+              email: email || null,
+              phone: phone || null,
+              address: address || null,
+              updated_at: new Date()
+            }
+          });
+          res.writeHead(200);
+          res.end(JSON.stringify(customer));
+        } catch (error) {
+          if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2025') {
+            res.writeHead(404);
+            res.end(JSON.stringify({ error: 'Customer not found' }));
+          } else {
+            throw error;
+          }
         }
-        
-        res.writeHead(200);
-        res.end(JSON.stringify(result.rows[0]));
       }
       else if (pathname?.match(/^\/api\/companies\/\d+\/customers\/\d+$/) && method === 'DELETE') {
         const pathParts = pathname.split('/');
-        const companyId = pathParts[3];
-        const customerId = pathParts[5];
+        const companyId = parseInt(pathParts[3]);
+        const customerId = parseInt(pathParts[5]);
         
-        const result = await query(
-          'DELETE FROM customers WHERE id = $1 AND company_id = $2 RETURNING id',
-          [customerId, companyId]
-        );
-        
-        if (result.rows.length === 0) {
-          res.writeHead(404);
-          res.end(JSON.stringify({ error: 'Customer not found' }));
-          return;
+        try {
+          await prisma.customers.delete({
+            where: { 
+              id: customerId,
+              company_id: companyId
+            }
+          });
+          res.writeHead(200);
+          res.end(JSON.stringify({ message: 'Customer deleted successfully' }));
+        } catch (error) {
+          if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2025') {
+            res.writeHead(404);
+            res.end(JSON.stringify({ error: 'Customer not found' }));
+          } else {
+            throw error;
+          }
         }
-        
-        res.writeHead(200);
-        res.end(JSON.stringify({ message: 'Customer deleted successfully' }));
       }
+      // Suppliers endpoints
       else if (pathname?.startsWith('/api/companies/') && pathname.endsWith('/suppliers') && method === 'GET') {
-        const companyId = pathname.split('/')[3];
-        const result = await query('SELECT * FROM suppliers WHERE company_id = $1 ORDER BY name', [companyId]);
+        const companyId = parseInt(pathname.split('/')[3]);
+        const suppliers = await prisma.suppliers.findMany({
+          where: { company_id: companyId },
+          orderBy: { name: 'asc' }
+        });
         res.writeHead(200);
-        res.end(JSON.stringify(result.rows));
+        res.end(JSON.stringify(suppliers));
       }
       else if (pathname?.startsWith('/api/companies/') && pathname.endsWith('/suppliers') && method === 'POST') {
-        const companyId = pathname.split('/')[3];
+        const companyId = parseInt(pathname.split('/')[3]);
         const body = await parseBody(req);
         const { name, contact_person, email, phone, address } = body;
         
@@ -136,17 +167,23 @@ const server = http.createServer(async (req, res) => {
           return;
         }
         
-        const result = await query(
-          'INSERT INTO suppliers (company_id, name, contact_person, email, phone, address) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *',
-          [companyId, name, contact_person || null, email || null, phone || null, address || null]
-        );
+        const supplier = await prisma.suppliers.create({
+          data: {
+            company_id: companyId,
+            name,
+            contact_person: contact_person || null,
+            email: email || null,
+            phone: phone || null,
+            address: address || null
+          }
+        });
         res.writeHead(201);
-        res.end(JSON.stringify(result.rows[0]));
+        res.end(JSON.stringify(supplier));
       }
       else if (pathname?.match(/^\/api\/companies\/\d+\/suppliers\/\d+$/) && method === 'PUT') {
         const pathParts = pathname.split('/');
-        const companyId = pathParts[3];
-        const supplierId = pathParts[5];
+        const companyId = parseInt(pathParts[3]);
+        const supplierId = parseInt(pathParts[5]);
         const body = await parseBody(req);
         const { name, contact_person, email, phone, address } = body;
         
@@ -156,47 +193,67 @@ const server = http.createServer(async (req, res) => {
           return;
         }
         
-        const result = await query(
-          'UPDATE suppliers SET name = $1, contact_person = $2, email = $3, phone = $4, address = $5, updated_at = CURRENT_TIMESTAMP WHERE id = $6 AND company_id = $7 RETURNING *',
-          [name, contact_person || null, email || null, phone || null, address || null, supplierId, companyId]
-        );
-        
-        if (result.rows.length === 0) {
-          res.writeHead(404);
-          res.end(JSON.stringify({ error: 'Supplier not found' }));
-          return;
+        try {
+          const supplier = await prisma.suppliers.update({
+            where: { 
+              id: supplierId,
+              company_id: companyId
+            },
+            data: {
+              name,
+              contact_person: contact_person || null,
+              email: email || null,
+              phone: phone || null,
+              address: address || null,
+              updated_at: new Date()
+            }
+          });
+          res.writeHead(200);
+          res.end(JSON.stringify(supplier));
+        } catch (error) {
+          if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2025') {
+            res.writeHead(404);
+            res.end(JSON.stringify({ error: 'Supplier not found' }));
+          } else {
+            throw error;
+          }
         }
-        
-        res.writeHead(200);
-        res.end(JSON.stringify(result.rows[0]));
       }
       else if (pathname?.match(/^\/api\/companies\/\d+\/suppliers\/\d+$/) && method === 'DELETE') {
         const pathParts = pathname.split('/');
-        const companyId = pathParts[3];
-        const supplierId = pathParts[5];
+        const companyId = parseInt(pathParts[3]);
+        const supplierId = parseInt(pathParts[5]);
         
-        const result = await query(
-          'DELETE FROM suppliers WHERE id = $1 AND company_id = $2 RETURNING id',
-          [supplierId, companyId]
-        );
-        
-        if (result.rows.length === 0) {
-          res.writeHead(404);
-          res.end(JSON.stringify({ error: 'Supplier not found' }));
-          return;
+        try {
+          await prisma.suppliers.delete({
+            where: { 
+              id: supplierId,
+              company_id: companyId
+            }
+          });
+          res.writeHead(200);
+          res.end(JSON.stringify({ message: 'Supplier deleted successfully' }));
+        } catch (error) {
+          if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2025') {
+            res.writeHead(404);
+            res.end(JSON.stringify({ error: 'Supplier not found' }));
+          } else {
+            throw error;
+          }
         }
-        
-        res.writeHead(200);
-        res.end(JSON.stringify({ message: 'Supplier deleted successfully' }));
       }
+      // Parts endpoints
       else if (pathname?.startsWith('/api/companies/') && pathname.endsWith('/parts') && method === 'GET') {
-        const companyId = pathname.split('/')[3];
-        const result = await query('SELECT * FROM parts WHERE company_id = $1 ORDER BY sku', [companyId]);
+        const companyId = parseInt(pathname.split('/')[3]);
+        const parts = await prisma.parts.findMany({
+          where: { company_id: companyId },
+          orderBy: { sku: 'asc' }
+        });
         res.writeHead(200);
-        res.end(JSON.stringify(result.rows));
+        res.end(JSON.stringify(parts));
       }
       else if (pathname?.startsWith('/api/companies/') && pathname.endsWith('/parts') && method === 'POST') {
-        const companyId = pathname.split('/')[3];
+        const companyId = parseInt(pathname.split('/')[3]);
         const body = await parseBody(req);
         const { supplier_id, sku, name, description, price } = body;
         
@@ -207,22 +264,30 @@ const server = http.createServer(async (req, res) => {
         }
         
         // Verify supplier belongs to the company
-        const supplierCheck = await query('SELECT id FROM suppliers WHERE id = $1 AND company_id = $2', [supplier_id, companyId]);
-        if (supplierCheck.rows.length === 0) {
+        const supplier = await prisma.suppliers.findFirst({
+          where: { id: supplier_id, company_id: companyId }
+        });
+        if (!supplier) {
           res.writeHead(400);
           res.end(JSON.stringify({ error: 'Invalid supplier for this company' }));
           return;
         }
         
         try {
-          const result = await query(
-            'INSERT INTO parts (company_id, supplier_id, sku, name, description, price) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *',
-            [companyId, supplier_id, sku, name, description || null, price || null]
-          );
+          const part = await prisma.parts.create({
+            data: {
+              company_id: companyId,
+              supplier_id,
+              sku,
+              name,
+              description: description || null,
+              price: price ? new Prisma.Decimal(price) : null
+            }
+          });
           res.writeHead(201);
-          res.end(JSON.stringify(result.rows[0]));
-        } catch (error: any) {
-          if (error.code === '23505') { // Unique constraint violation
+          res.end(JSON.stringify(part));
+        } catch (error) {
+          if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
             res.writeHead(400);
             res.end(JSON.stringify({ error: 'SKU already exists for this company' }));
           } else {
@@ -232,8 +297,8 @@ const server = http.createServer(async (req, res) => {
       }
       else if (pathname?.match(/^\/api\/companies\/\d+\/parts\/\d+$/) && method === 'PUT') {
         const pathParts = pathname.split('/');
-        const companyId = pathParts[3];
-        const partId = pathParts[5];
+        const companyId = parseInt(pathParts[3]);
+        const partId = parseInt(pathParts[5]);
         const body = await parseBody(req);
         const { supplier_id, sku, name, description, price } = body;
         
@@ -244,29 +309,37 @@ const server = http.createServer(async (req, res) => {
         }
         
         // Verify supplier belongs to the company
-        const supplierCheck = await query('SELECT id FROM suppliers WHERE id = $1 AND company_id = $2', [supplier_id, companyId]);
-        if (supplierCheck.rows.length === 0) {
+        const supplier = await prisma.suppliers.findFirst({
+          where: { id: supplier_id, company_id: companyId }
+        });
+        if (!supplier) {
           res.writeHead(400);
           res.end(JSON.stringify({ error: 'Invalid supplier for this company' }));
           return;
         }
         
         try {
-          const result = await query(
-            'UPDATE parts SET supplier_id = $1, sku = $2, name = $3, description = $4, price = $5, updated_at = CURRENT_TIMESTAMP WHERE id = $6 AND company_id = $7 RETURNING *',
-            [supplier_id, sku, name, description || null, price || null, partId, companyId]
-          );
-          
-          if (result.rows.length === 0) {
+          const part = await prisma.parts.update({
+            where: { 
+              id: partId,
+              company_id: companyId
+            },
+            data: {
+              supplier_id,
+              sku,
+              name,
+              description: description || null,
+              price: price ? new Prisma.Decimal(price) : null,
+              updated_at: new Date()
+            }
+          });
+          res.writeHead(200);
+          res.end(JSON.stringify(part));
+        } catch (error) {
+          if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2025') {
             res.writeHead(404);
             res.end(JSON.stringify({ error: 'Part not found' }));
-            return;
-          }
-          
-          res.writeHead(200);
-          res.end(JSON.stringify(result.rows[0]));
-        } catch (error: any) {
-          if (error.code === '23505') { // Unique constraint violation
+          } else if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
             res.writeHead(400);
             res.end(JSON.stringify({ error: 'SKU already exists for this company' }));
           } else {
@@ -276,74 +349,126 @@ const server = http.createServer(async (req, res) => {
       }
       else if (pathname?.match(/^\/api\/companies\/\d+\/parts\/\d+$/) && method === 'DELETE') {
         const pathParts = pathname.split('/');
-        const companyId = pathParts[3];
-        const partId = pathParts[5];
+        const companyId = parseInt(pathParts[3]);
+        const partId = parseInt(pathParts[5]);
         
-        const result = await query(
-          'DELETE FROM parts WHERE id = $1 AND company_id = $2 RETURNING id',
-          [partId, companyId]
-        );
-        
-        if (result.rows.length === 0) {
-          res.writeHead(404);
-          res.end(JSON.stringify({ error: 'Part not found' }));
-          return;
+        try {
+          await prisma.parts.delete({
+            where: { 
+              id: partId,
+              company_id: companyId
+            }
+          });
+          res.writeHead(200);
+          res.end(JSON.stringify({ message: 'Part deleted successfully' }));
+        } catch (error) {
+          if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2025') {
+            res.writeHead(404);
+            res.end(JSON.stringify({ error: 'Part not found' }));
+          } else {
+            throw error;
+          }
         }
+      }
+      // Sales Orders endpoints
+      else if (pathname?.startsWith('/api/companies/') && pathname.endsWith('/sales-orders') && method === 'GET') {
+        const companyId = parseInt(pathname.split('/')[3]);
+        const url = new URL(req.url || '', `http://${req.headers.host}`);
+        const includeItems = url.searchParams.get('include_items') === 'true';
+        
+        const salesOrders = await prisma.sales_orders.findMany({
+          where: { company_id: companyId },
+          include: {
+            customers: true,
+            sales_order_items: includeItems ? {
+              include: {
+                parts: true,
+                suppliers: true
+              },
+              orderBy: { id: 'asc' }
+            } : true
+          },
+          orderBy: [
+            { order_date: 'desc' },
+            { created_at: 'desc' }
+          ]
+        });
+        
+        // Transform to match existing API response
+        const result = salesOrders.map(order => {
+          const total_commission = order.sales_order_items.reduce((sum, item) => 
+            sum + (item.commission_amount ? parseFloat(item.commission_amount.toString()) : 0), 0
+          );
+          
+          const baseOrder = {
+            ...order,
+            customer_name: order.customers.name,
+            total_commission
+          };
+          
+          if (includeItems) {
+            return {
+              ...baseOrder,
+              items: order.sales_order_items.map(item => ({
+                ...item,
+                part_name: (item as any).parts.name,
+                sku: (item as any).parts.sku,
+                supplier_name: (item as any).suppliers.name
+              }))
+            };
+          }
+          
+          return baseOrder;
+        });
         
         res.writeHead(200);
-        res.end(JSON.stringify({ message: 'Part deleted successfully' }));
-      }
-      else if (pathname?.startsWith('/api/companies/') && pathname.endsWith('/sales-orders') && method === 'GET') {
-        const companyId = pathname.split('/')[3];
-        const result = await query(`
-          SELECT so.*, c.name as customer_name,
-                 COALESCE(SUM(soi.commission_amount), 0) as total_commission
-          FROM sales_orders so 
-          JOIN customers c ON so.customer_id = c.id 
-          LEFT JOIN sales_order_items soi ON so.id = soi.sales_order_id
-          WHERE so.company_id = $1 
-          GROUP BY so.id, c.name
-          ORDER BY so.order_date DESC, so.created_at DESC
-        `, [companyId]);
-        res.writeHead(200);
-        res.end(JSON.stringify(result.rows));
+        res.end(JSON.stringify(result));
       }
       else if (pathname?.match(/^\/api\/companies\/\d+\/sales-orders\/\d+$/) && method === 'GET') {
         const pathParts = pathname.split('/');
-        const companyId = pathParts[3];
-        const orderId = pathParts[5];
+        const companyId = parseInt(pathParts[3]);
+        const orderId = parseInt(pathParts[5]);
         
-        // Get sales order with items
-        const orderResult = await query(`
-          SELECT so.*, c.name as customer_name 
-          FROM sales_orders so 
-          JOIN customers c ON so.customer_id = c.id 
-          WHERE so.id = $1 AND so.company_id = $2
-        `, [orderId, companyId]);
+        const order = await prisma.sales_orders.findFirst({
+          where: { 
+            id: orderId,
+            company_id: companyId
+          },
+          include: {
+            customers: true,
+            sales_order_items: {
+              include: {
+                parts: true,
+                suppliers: true
+              },
+              orderBy: { id: 'asc' }
+            }
+          }
+        });
         
-        if (orderResult.rows.length === 0) {
+        if (!order) {
           res.writeHead(404);
           res.end(JSON.stringify({ error: 'Sales order not found' }));
           return;
         }
         
-        const itemsResult = await query(`
-          SELECT soi.*, p.name as part_name, p.sku, s.name as supplier_name
-          FROM sales_order_items soi
-          JOIN parts p ON soi.part_id = p.id
-          JOIN suppliers s ON soi.supplier_id = s.id
-          WHERE soi.sales_order_id = $1 AND soi.company_id = $2
-          ORDER BY soi.id
-        `, [orderId, companyId]);
-        
-        const order = orderResult.rows[0];
-        order.items = itemsResult.rows;
+        // Transform to match existing API response
+        const result = {
+          ...order,
+          customer_name: order.customers.name,
+          items: order.sales_order_items.map(item => ({
+            ...item,
+            part_name: item.parts.name,
+            sku: item.parts.sku,
+            supplier_name: item.suppliers.name
+          }))
+        };
         
         res.writeHead(200);
-        res.end(JSON.stringify(order));
+        res.end(JSON.stringify(result));
       }
       else if (pathname?.startsWith('/api/companies/') && pathname.endsWith('/sales-orders') && method === 'POST') {
-        const companyId = pathname.split('/')[3];
+        const companyId = parseInt(pathname.split('/')[3]);
         const body = await parseBody(req);
         const { customer_id, po_number, order_date, status, notes, items } = body;
         
@@ -354,58 +479,77 @@ const server = http.createServer(async (req, res) => {
         }
         
         // Verify customer belongs to company
-        const customerCheck = await query('SELECT id FROM customers WHERE id = $1 AND company_id = $2', [customer_id, companyId]);
-        if (customerCheck.rows.length === 0) {
+        const customer = await prisma.customers.findFirst({
+          where: { id: customer_id, company_id: companyId }
+        });
+        if (!customer) {
           res.writeHead(400);
           res.end(JSON.stringify({ error: 'Invalid customer for this company' }));
           return;
         }
         
         try {
-          // Start transaction
-          await query('BEGIN');
-          
-          // Create sales order
-          const orderResult = await query(`
-            INSERT INTO sales_orders (company_id, customer_id, po_number, order_date, status, notes) 
-            VALUES ($1, $2, $3, $4, $5, $6) 
-            RETURNING *
-          `, [companyId, customer_id, po_number, order_date || new Date().toISOString().split('T')[0], status || 'pending', notes || null]);
-          
-          const salesOrderId = orderResult.rows[0].id;
-          
-          // Create sales order items
-          let totalAmount = 0;
-          for (const item of items) {
-            // Verify part and supplier belong to company
-            const partCheck = await query('SELECT id, price FROM parts WHERE id = $1 AND company_id = $2', [item.part_id, companyId]);
-            const supplierCheck = await query('SELECT id FROM suppliers WHERE id = $1 AND company_id = $2', [item.supplier_id, companyId]);
+          // Use transaction for atomicity
+          const result = await prisma.$transaction(async (tx) => {
+            // Create sales order
+            const order = await tx.sales_orders.create({
+              data: {
+                company_id: companyId,
+                customer_id,
+                po_number,
+                order_date: order_date ? new Date(order_date) : new Date(),
+                status: status || 'pending',
+                notes: notes || null,
+                total_amount: 0 // Will update after items
+              }
+            });
             
-            if (partCheck.rows.length === 0 || supplierCheck.rows.length === 0) {
-              throw new Error('Invalid part or supplier for this company');
+            // Create sales order items
+            let totalAmount = new Prisma.Decimal(0);
+            for (const item of items) {
+              // Verify part and supplier belong to company
+              const part = await tx.parts.findFirst({
+                where: { id: item.part_id, company_id: companyId }
+              });
+              const supplier = await tx.suppliers.findFirst({
+                where: { id: item.supplier_id, company_id: companyId }
+              });
+              
+              if (!part || !supplier) {
+                throw new Error('Invalid part or supplier for this company');
+              }
+              
+              const unitPrice = item.unit_price || part.price || 0;
+              const commissionPercentage = item.commission_percentage || 0;
+              
+              await tx.sales_order_items.create({
+                data: {
+                  company_id: companyId,
+                  sales_order_id: order.id,
+                  part_id: item.part_id,
+                  supplier_id: item.supplier_id,
+                  quantity: item.quantity,
+                  unit_price: new Prisma.Decimal(unitPrice),
+                  commission_percentage: new Prisma.Decimal(commissionPercentage)
+                }
+              });
+              
+              totalAmount = totalAmount.add(new Prisma.Decimal(item.quantity * unitPrice));
             }
             
-            const unitPrice = item.unit_price || partCheck.rows[0].price || 0;
-            const commissionPercentage = item.commission_percentage || 0;
+            // Update total amount
+            const updatedOrder = await tx.sales_orders.update({
+              where: { id: order.id },
+              data: { total_amount: totalAmount }
+            });
             
-            await query(`
-              INSERT INTO sales_order_items (company_id, sales_order_id, part_id, supplier_id, quantity, unit_price, commission_percentage)
-              VALUES ($1, $2, $3, $4, $5, $6, $7)
-            `, [companyId, salesOrderId, item.part_id, item.supplier_id, item.quantity, unitPrice, commissionPercentage]);
-            
-            totalAmount += item.quantity * unitPrice;
-          }
-          
-          // Update total amount
-          await query('UPDATE sales_orders SET total_amount = $1 WHERE id = $2', [totalAmount, salesOrderId]);
-          
-          await query('COMMIT');
+            return updatedOrder;
+          });
           
           res.writeHead(201);
-          res.end(JSON.stringify(orderResult.rows[0]));
+          res.end(JSON.stringify(result));
         } catch (error: any) {
-          await query('ROLLBACK');
-          if (error.code === '23505') { // Unique constraint violation
+          if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
             res.writeHead(400);
             res.end(JSON.stringify({ error: 'PO number already exists for this customer' }));
           } else {
@@ -415,102 +559,167 @@ const server = http.createServer(async (req, res) => {
       }
       else if (pathname?.match(/^\/api\/companies\/\d+\/sales-orders\/\d+$/) && method === 'DELETE') {
         const pathParts = pathname.split('/');
-        const companyId = pathParts[3];
-        const orderId = pathParts[5];
+        const companyId = parseInt(pathParts[3]);
+        const orderId = parseInt(pathParts[5]);
         
-        const result = await query(
-          'DELETE FROM sales_orders WHERE id = $1 AND company_id = $2 RETURNING id',
-          [orderId, companyId]
-        );
-        
-        if (result.rows.length === 0) {
-          res.writeHead(404);
-          res.end(JSON.stringify({ error: 'Sales order not found' }));
-          return;
+        try {
+          await prisma.sales_orders.delete({
+            where: { 
+              id: orderId,
+              company_id: companyId
+            }
+          });
+          res.writeHead(200);
+          res.end(JSON.stringify({ message: 'Sales order deleted successfully' }));
+        } catch (error) {
+          if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2025') {
+            res.writeHead(404);
+            res.end(JSON.stringify({ error: 'Sales order not found' }));
+          } else {
+            throw error;
+          }
         }
-        
-        res.writeHead(200);
-        res.end(JSON.stringify({ message: 'Sales order deleted successfully' }));
       }
-      // Commission Outstanding API endpoints
+      // Commission Outstanding endpoints
       else if (pathname?.match(/^\/api\/companies\/\d+\/commission-outstanding$/) && method === 'GET') {
-        const companyId = pathname.split('/')[3];
-        const result = await query(`
-          SELECT 
-            s.id as supplier_id,
-            s.name as supplier_name,
-            COALESCE(SUM(soi.commission_amount), 0) as total_commission,
-            COALESCE(SUM(ca.allocated_amount), 0) as total_paid,
-            COALESCE(SUM(soi.commission_amount), 0) - COALESCE(SUM(ca.allocated_amount), 0) as outstanding_amount,
-            COUNT(DISTINCT so.id) as order_count
-          FROM suppliers s
-          LEFT JOIN sales_order_items soi ON s.id = soi.supplier_id AND soi.company_id = $1
-          LEFT JOIN sales_orders so ON soi.sales_order_id = so.id
-          LEFT JOIN commission_allocations ca ON soi.id = ca.sales_order_item_id
-          WHERE s.company_id = $1
-          GROUP BY s.id, s.name
-          HAVING COALESCE(SUM(soi.commission_amount), 0) > 0
-          ORDER BY outstanding_amount DESC
-        `, [companyId]);
+        const companyId = parseInt(pathname.split('/')[3]);
+        
+        // Get all suppliers with their commission data
+        const suppliers = await prisma.suppliers.findMany({
+          where: { company_id: companyId },
+          include: {
+            sales_order_items: {
+              where: {
+                commission_amount: { gt: 0 }
+              },
+              include: {
+                commission_allocations: true,
+                sales_orders: true
+              }
+            }
+          }
+        });
+        
+        // Calculate commission summary for each supplier
+        const result = suppliers
+          .map(supplier => {
+            const totalCommission = supplier.sales_order_items.reduce((sum, item) => 
+              sum + (item.commission_amount ? parseFloat(item.commission_amount.toString()) : 0), 0
+            );
+            
+            const totalPaid = supplier.sales_order_items.reduce((sum, item) => 
+              sum + item.commission_allocations.reduce((allocSum, alloc) => 
+                allocSum + parseFloat(alloc.allocated_amount.toString()), 0
+              ), 0
+            );
+            
+            const orderIds = new Set(supplier.sales_order_items.map(item => item.sales_order_id));
+            
+            return {
+              supplier_id: supplier.id,
+              supplier_name: supplier.name,
+              total_commission: totalCommission,
+              total_paid: totalPaid,
+              outstanding_amount: totalCommission - totalPaid,
+              order_count: orderIds.size
+            };
+          })
+          .filter(item => item.total_commission > 0)
+          .sort((a, b) => b.outstanding_amount - a.outstanding_amount);
         
         res.writeHead(200);
-        res.end(JSON.stringify(result.rows));
+        res.end(JSON.stringify(result));
       }
       else if (pathname?.match(/^\/api\/companies\/\d+\/suppliers\/\d+\/commission-outstanding\/details$/) && method === 'GET') {
         const pathParts = pathname.split('/');
-        const companyId = pathParts[3];
-        const supplierId = pathParts[5];
+        const companyId = parseInt(pathParts[3]);
+        const supplierId = parseInt(pathParts[5]);
         
-        const result = await query(`
-          SELECT 
-            so.id as sales_order_id,
-            so.po_number,
-            c.name as customer_name,
-            so.order_date,
-            soi.id as sales_order_item_id,
-            p.name as part_name,
-            p.sku,
-            soi.quantity,
-            soi.unit_price,
-            soi.commission_percentage,
-            soi.commission_amount,
-            COALESCE(SUM(ca.allocated_amount), 0) as paid_amount,
-            soi.commission_amount - COALESCE(SUM(ca.allocated_amount), 0) as outstanding_amount
-          FROM sales_order_items soi
-          JOIN sales_orders so ON soi.sales_order_id = so.id
-          JOIN customers c ON so.customer_id = c.id
-          JOIN parts p ON soi.part_id = p.id
-          LEFT JOIN commission_allocations ca ON soi.id = ca.sales_order_item_id
-          WHERE soi.company_id = $1 AND soi.supplier_id = $2
-          GROUP BY so.id, so.po_number, c.name, so.order_date, soi.id, p.name, p.sku, 
-                   soi.quantity, soi.unit_price, soi.commission_percentage, soi.commission_amount
-          HAVING soi.commission_amount - COALESCE(SUM(ca.allocated_amount), 0) > 0
-          ORDER BY so.order_date DESC, so.po_number
-        `, [companyId, supplierId]);
+        const items = await prisma.sales_order_items.findMany({
+          where: {
+            company_id: companyId,
+            supplier_id: supplierId,
+            commission_amount: { gt: 0 }
+          },
+          include: {
+            sales_orders: {
+              include: {
+                customers: true
+              }
+            },
+            parts: true,
+            commission_allocations: true
+          }
+        });
+        
+        // Transform and filter to match existing API
+        const result = items
+          .map(item => {
+            const paidAmount = item.commission_allocations.reduce((sum, alloc) => 
+              sum + parseFloat(alloc.allocated_amount.toString()), 0
+            );
+            const commissionAmount = item.commission_amount ? parseFloat(item.commission_amount.toString()) : 0;
+            const outstandingAmount = commissionAmount - paidAmount;
+            
+            return {
+              sales_order_id: item.sales_order_id,
+              po_number: item.sales_orders.po_number,
+              customer_name: item.sales_orders.customers.name,
+              order_date: item.sales_orders.order_date,
+              sales_order_item_id: item.id,
+              part_name: item.parts.name,
+              sku: item.parts.sku,
+              quantity: item.quantity,
+              unit_price: item.unit_price,
+              commission_percentage: item.commission_percentage,
+              commission_amount: commissionAmount,
+              paid_amount: paidAmount,
+              outstanding_amount: outstandingAmount
+            };
+          })
+          .filter(item => item.outstanding_amount > 0)
+          .sort((a, b) => {
+            const dateCompare = new Date(b.order_date).getTime() - new Date(a.order_date).getTime();
+            return dateCompare !== 0 ? dateCompare : a.po_number.localeCompare(b.po_number);
+          });
         
         res.writeHead(200);
-        res.end(JSON.stringify(result.rows));
+        res.end(JSON.stringify(result));
       }
-      // Commission Payment API endpoints
+      // Commission Payment endpoints
       else if (pathname?.match(/^\/api\/companies\/\d+\/commission-payments$/) && method === 'GET') {
-        const companyId = pathname.split('/')[3];
-        const result = await query(`
-          SELECT 
-            cp.id, cp.company_id, cp.supplier_id, cp.payment_date,
-            cp.payment_amount as total_amount, cp.payment_reference as reference_number,
-            cp.notes, cp.status, cp.created_at, cp.updated_at,
-            s.name as supplier_name
-          FROM commission_payments cp
-          JOIN suppliers s ON cp.supplier_id = s.id
-          WHERE cp.company_id = $1
-          ORDER BY cp.payment_date DESC
-        `, [companyId]);
+        const companyId = parseInt(pathname.split('/')[3]);
+        const payments = await prisma.commission_payments.findMany({
+          where: { company_id: companyId },
+          include: {
+            suppliers: true,
+            commission_payment_items: true
+          },
+          orderBy: { payment_date: 'desc' }
+        });
+        
+        // Transform to match existing API response
+        const result = payments.map(payment => {
+          const totalLineItems = payment.commission_payment_items.reduce((sum, item) => 
+            sum + Number(item.amount), 0
+          );
+          
+          return {
+            ...payment,
+            total_amount: payment.payment_amount,
+            reference_number: payment.payment_reference,
+            supplier_name: payment.suppliers.name,
+            items: payment.commission_payment_items,
+            total_line_items: totalLineItems,
+            remaining_amount: Number(payment.payment_amount) - totalLineItems
+          };
+        });
         
         res.writeHead(200);
-        res.end(JSON.stringify(result.rows));
+        res.end(JSON.stringify(result));
       }
       else if (pathname?.match(/^\/api\/companies\/\d+\/commission-payments$/) && method === 'POST') {
-        const companyId = pathname.split('/')[3];
+        const companyId = parseInt(pathname.split('/')[3]);
         const body = await parseBody(req);
         const { supplier_id, payment_date, total_amount, reference_number, notes } = body;
         
@@ -521,129 +730,459 @@ const server = http.createServer(async (req, res) => {
         }
         
         // Verify supplier belongs to the company
-        const supplierCheck = await query('SELECT id FROM suppliers WHERE id = $1 AND company_id = $2', [supplier_id, companyId]);
-        if (supplierCheck.rows.length === 0) {
+        const supplier = await prisma.suppliers.findFirst({
+          where: { id: supplier_id, company_id: companyId }
+        });
+        if (!supplier) {
           res.writeHead(400);
           res.end(JSON.stringify({ error: 'Invalid supplier for this company' }));
           return;
         }
         
-        const result = await query(
-          'INSERT INTO commission_payments (company_id, supplier_id, payment_date, payment_amount, payment_reference, notes, status) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *',
-          [companyId, supplier_id, payment_date, total_amount, reference_number || null, notes || null, 'unallocated']
-        );
+        const result = await prisma.$transaction(async (tx) => {
+          // Create the payment
+          const payment = await tx.commission_payments.create({
+            data: {
+              company_id: companyId,
+              supplier_id,
+              payment_date: new Date(payment_date),
+              payment_amount: new Prisma.Decimal(total_amount),
+              payment_reference: reference_number || null,
+              notes: notes || null,
+              status: 'unallocated'
+            }
+          });
+
+          // Create a default payment item with the full amount
+          const paymentItem = await tx.commission_payment_items.create({
+            data: {
+              company_id: companyId,
+              commission_payment_id: payment.id,
+              amount: new Prisma.Decimal(total_amount),
+              description: 'Payment item',
+              notes: null
+            }
+          });
+
+          return { ...payment, items: [paymentItem] };
+        });
         
         res.writeHead(201);
-        res.end(JSON.stringify(result.rows[0]));
+        res.end(JSON.stringify(result));
       }
+      // Commission Allocations endpoints
       else if (pathname?.match(/^\/api\/companies\/\d+\/commission-allocations$/) && method === 'POST') {
-        const companyId = pathname.split('/')[3];
+        const companyId = parseInt(pathname.split('/')[3]);
         const body = await parseBody(req);
-        const { commission_payment_id, sales_order_item_id, allocated_amount, notes } = body;
+        const { commission_payment_item_id, sales_order_item_id, allocated_amount, notes } = body;
         
-        if (!commission_payment_id || !sales_order_item_id || !allocated_amount) {
+        if (!commission_payment_item_id || !sales_order_item_id || !allocated_amount) {
           res.writeHead(400);
-          res.end(JSON.stringify({ error: 'Payment ID, sales order item ID, and allocated amount are required' }));
+          res.end(JSON.stringify({ error: 'Payment item ID, sales order item ID, and allocated amount are required' }));
           return;
         }
         
-        await query('BEGIN');
+        try {
+          const result = await prisma.$transaction(async (tx) => {
+            // Verify payment item exists and belongs to company
+            const paymentItem = await tx.commission_payment_items.findFirst({
+              where: { id: commission_payment_item_id, company_id: companyId }
+            });
+            if (!paymentItem) {
+              throw new Error('Payment item not found');
+            }
+            
+            // Verify sales order item exists and belongs to company
+            const item = await tx.sales_order_items.findFirst({
+              where: { id: sales_order_item_id, company_id: companyId }
+            });
+            if (!item) {
+              throw new Error('Sales order item not found');
+            }
+            
+            // Create allocation
+            const allocation = await tx.commission_allocations.create({
+              data: {
+                company_id: companyId,
+                commission_payment_item_id,
+                sales_order_item_id,
+                allocated_amount: new Prisma.Decimal(allocated_amount),
+                notes: notes || null
+              }
+            });
+            
+            // Update payment status based on total allocations for the parent payment
+            const payment = await tx.commission_payments.findFirst({
+              where: { id: paymentItem.commission_payment_id },
+              include: {
+                commission_payment_items: {
+                  include: {
+                    commission_allocations: true
+                  }
+                }
+              }
+            });
+            
+            // Calculate total allocated across all payment items
+            const totalAllocated = payment?.commission_payment_items.reduce((sum, item) => {
+              const itemAllocated = item.commission_allocations.reduce((itemSum, alloc) => 
+                itemSum.add(alloc.allocated_amount), new Prisma.Decimal(0)
+              );
+              return sum.add(itemAllocated);
+            }, new Prisma.Decimal(0)) || new Prisma.Decimal(0);
+            
+            let status = 'unallocated';
+            if (totalAllocated.gt(0) && payment) {
+              const diff = payment.payment_amount.sub(totalAllocated).abs();
+              status = diff.lt(0.01) ? 'fully_allocated' : 'partially_allocated';
+            }
+            
+            if (payment) {
+              await tx.commission_payments.update({
+                where: { id: paymentItem.commission_payment_id },
+                data: { status }
+              });
+            }
+            
+            return allocation;
+          });
+          
+          res.writeHead(201);
+          res.end(JSON.stringify(result));
+        } catch (error: any) {
+          if (error.message === 'Payment not found' || error.message === 'Sales order item not found') {
+            res.writeHead(404);
+            res.end(JSON.stringify({ error: error.message }));
+          } else {
+            throw error;
+          }
+        }
+      }
+      else if (pathname?.match(/^\/api\/companies\/\d+\/commission-payments\/\d+\/allocations$/) && method === 'GET') {
+        const pathParts = pathname.split('/');
+        const companyId = parseInt(pathParts[3]);
+        const paymentId = parseInt(pathParts[5]);
+        
+        // Get all allocations for payment items belonging to this payment
+        const allocations = await prisma.commission_allocations.findMany({
+          where: {
+            commission_payment_items: {
+              commission_payment_id: paymentId,
+              company_id: companyId
+            },
+            company_id: companyId
+          },
+          include: {
+            sales_order_items: {
+              include: {
+                sales_orders: {
+                  include: {
+                    customers: true
+                  }
+                },
+                parts: true
+              }
+            }
+          },
+          orderBy: [
+            { sales_order_items: { sales_orders: { po_number: 'asc' } } },
+            { sales_order_items: { parts: { sku: 'asc' } } }
+          ]
+        });
+        
+        // Transform to match existing API response
+        const result = allocations.map(alloc => ({
+          ...alloc,
+          po_number: alloc.sales_order_items.sales_orders.po_number,
+          customer_name: alloc.sales_order_items.sales_orders.customers.name,
+          part_name: alloc.sales_order_items.parts.name,
+          sku: alloc.sales_order_items.parts.sku,
+          commission_amount: alloc.sales_order_items.commission_amount,
+          quantity: alloc.sales_order_items.quantity,
+          unit_price: alloc.sales_order_items.unit_price,
+          commission_percentage: alloc.sales_order_items.commission_percentage
+        }));
+        
+        res.writeHead(200);
+        res.end(JSON.stringify(result));
+      }
+      // Commission Payment Items endpoints
+      else if (pathname?.match(/^\/api\/companies\/\d+\/commission-payments\/\d+\/items$/) && method === 'GET') {
+        const pathParts = pathname.split('/');
+        const companyId = parseInt(pathParts[3]);
+        const paymentId = parseInt(pathParts[5]);
+        
+        const items = await prisma.commission_payment_items.findMany({
+          where: {
+            commission_payment_id: paymentId,
+            company_id: companyId
+          },
+          orderBy: { created_at: 'asc' }
+        });
+        
+        res.writeHead(200);
+        res.end(JSON.stringify(items));
+      }
+      else if (pathname?.match(/^\/api\/companies\/\d+\/commission-payments\/\d+\/items$/) && method === 'POST') {
+        const pathParts = pathname.split('/');
+        const companyId = parseInt(pathParts[3]);
+        const paymentId = parseInt(pathParts[5]);
+        const body = await parseBody(req);
+        const { amount, description, notes } = body;
+        
+        if (!amount) {
+          res.writeHead(400);
+          res.end(JSON.stringify({ error: 'Amount is required' }));
+          return;
+        }
         
         try {
           // Verify payment exists and belongs to company
-          const paymentCheck = await query('SELECT id, payment_amount as total_amount FROM commission_payments WHERE id = $1 AND company_id = $2', [commission_payment_id, companyId]);
-          if (paymentCheck.rows.length === 0) {
+          const payment = await prisma.commission_payments.findFirst({
+            where: { id: paymentId, company_id: companyId }
+          });
+          if (!payment) {
             res.writeHead(404);
             res.end(JSON.stringify({ error: 'Payment not found' }));
             return;
           }
           
-          // Verify sales order item exists and belongs to company
-          const itemCheck = await query('SELECT id, commission_amount FROM sales_order_items WHERE id = $1 AND company_id = $2', [sales_order_item_id, companyId]);
-          if (itemCheck.rows.length === 0) {
-            res.writeHead(404);
-            res.end(JSON.stringify({ error: 'Sales order item not found' }));
-            return;
-          }
-          
-          // Insert new allocation
-          const result = await query(
-            'INSERT INTO commission_allocations (company_id, commission_payment_id, sales_order_item_id, allocated_amount, notes) VALUES ($1, $2, $3, $4, $5) RETURNING *',
-            [companyId, commission_payment_id, sales_order_item_id, allocated_amount, notes || null]
-          );
-          
-          // Update payment status based on total allocations
-          const allocationsResult = await query('SELECT SUM(allocated_amount) as total_allocated FROM commission_allocations WHERE commission_payment_id = $1', [commission_payment_id]);
-          const totalAllocated = parseFloat(allocationsResult.rows[0].total_allocated || 0);
-          const paymentTotal = parseFloat(paymentCheck.rows[0].total_amount);
-          
-          let status = 'unallocated';
-          if (totalAllocated > 0) {
-            status = Math.abs(totalAllocated - paymentTotal) < 0.01 ? 'fully_allocated' : 'partially_allocated';
-          }
-          
-          await query('UPDATE commission_payments SET status = $1 WHERE id = $2', [status, commission_payment_id]);
-          
-          await query('COMMIT');
+          const item = await prisma.commission_payment_items.create({
+            data: {
+              company_id: companyId,
+              commission_payment_id: paymentId,
+              amount: new Prisma.Decimal(amount),
+              description: description || null,
+              notes: notes || null
+            }
+          });
           
           res.writeHead(201);
-          res.end(JSON.stringify(result.rows[0]));
+          res.end(JSON.stringify(item));
         } catch (error) {
-          await query('ROLLBACK');
-          throw error;
+          console.error('Error creating commission payment item:', error);
+          res.writeHead(500);
+          res.end(JSON.stringify({ error: 'Failed to create payment item' }));
         }
       }
-      else if (pathname?.match(/^\/api\/companies\/\d+\/commission-payments\/\d+\/allocations$/) && method === 'GET') {
+      else if (pathname?.match(/^\/api\/companies\/\d+\/commission-payments\/\d+\/items\/\d+$/) && method === 'PUT') {
         const pathParts = pathname.split('/');
-        const companyId = pathParts[3];
-        const paymentId = pathParts[5];
+        const companyId = parseInt(pathParts[3]);
+        const paymentId = parseInt(pathParts[5]);
+        const itemId = parseInt(pathParts[7]);
+        const body = await parseBody(req);
+        const { amount, description, notes } = body;
         
-        const result = await query(`
-          SELECT 
-            ca.*,
-            so.po_number,
-            c.name as customer_name,
-            p.name as part_name,
-            p.sku,
-            soi.commission_amount,
-            soi.quantity,
-            soi.unit_price,
-            soi.commission_percentage
-          FROM commission_allocations ca
-          JOIN sales_order_items soi ON ca.sales_order_item_id = soi.id
-          JOIN sales_orders so ON soi.sales_order_id = so.id
-          JOIN customers c ON so.customer_id = c.id
-          JOIN parts p ON soi.part_id = p.id
-          WHERE ca.commission_payment_id = $1 AND ca.company_id = $2
-          ORDER BY so.po_number, p.sku
-        `, [paymentId, companyId]);
+        if (!amount) {
+          res.writeHead(400);
+          res.end(JSON.stringify({ error: 'Amount is required' }));
+          return;
+        }
+        
+        try {
+          const item = await prisma.commission_payment_items.update({
+            where: {
+              id: itemId,
+              commission_payment_id: paymentId,
+              company_id: companyId
+            },
+            data: {
+              amount: new Prisma.Decimal(amount),
+              description: description || null,
+              notes: notes || null
+            }
+          });
+          
+          res.writeHead(200);
+          res.end(JSON.stringify(item));
+        } catch (error) {
+          if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2025') {
+            res.writeHead(404);
+            res.end(JSON.stringify({ error: 'Payment item not found' }));
+          } else {
+            console.error('Error updating commission payment item:', error);
+            res.writeHead(500);
+            res.end(JSON.stringify({ error: 'Failed to update payment item' }));
+          }
+        }
+      }
+      else if (pathname?.match(/^\/api\/companies\/\d+\/commission-payments\/\d+\/items\/\d+$/) && method === 'DELETE') {
+        const pathParts = pathname.split('/');
+        const companyId = parseInt(pathParts[3]);
+        const paymentId = parseInt(pathParts[5]);
+        const itemId = parseInt(pathParts[7]);
+        
+        try {
+          await prisma.commission_payment_items.delete({
+            where: {
+              id: itemId,
+              commission_payment_id: paymentId,
+              company_id: companyId
+            }
+          });
+          
+          res.writeHead(204);
+          res.end();
+        } catch (error) {
+          if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2025') {
+            res.writeHead(404);
+            res.end(JSON.stringify({ error: 'Payment item not found' }));
+          } else {
+            console.error('Error deleting commission payment item:', error);
+            res.writeHead(500);
+            res.end(JSON.stringify({ error: 'Failed to delete payment item' }));
+          }
+        }
+      }
+      else if (pathname?.match(/^\/api\/companies\/\d+\/commission-payment-items\/\d+\/allocations$/) && method === 'GET') {
+        const pathParts = pathname.split('/');
+        const companyId = parseInt(pathParts[3]);
+        const paymentItemId = parseInt(pathParts[5]);
+        
+        const allocations = await prisma.commission_allocations.findMany({
+          where: {
+            commission_payment_item_id: paymentItemId,
+            company_id: companyId
+          },
+          include: {
+            sales_order_items: {
+              include: {
+                sales_orders: {
+                  include: {
+                    customers: true
+                  }
+                },
+                parts: true
+              }
+            }
+          },
+          orderBy: [
+            { sales_order_items: { sales_orders: { po_number: 'asc' } } },
+            { sales_order_items: { parts: { sku: 'asc' } } }
+          ]
+        });
+        
+        // Transform to match existing API response
+        const result = allocations.map(alloc => ({
+          ...alloc,
+          po_number: alloc.sales_order_items.sales_orders.po_number,
+          customer_name: alloc.sales_order_items.sales_orders.customers.name,
+          part_name: alloc.sales_order_items.parts.name,
+          sku: alloc.sales_order_items.parts.sku,
+          commission_amount: alloc.sales_order_items.commission_amount,
+          quantity: alloc.sales_order_items.quantity,
+          unit_price: alloc.sales_order_items.unit_price,
+          commission_percentage: alloc.sales_order_items.commission_percentage
+        }));
         
         res.writeHead(200);
-        res.end(JSON.stringify(result.rows));
+        res.end(JSON.stringify(result));
+      }
+      else if (pathname?.match(/^\/api\/companies\/\d+\/suppliers\/\d+\/commission-summary$/) && method === 'GET') {
+        const pathParts = pathname.split('/');
+        const companyId = parseInt(pathParts[3]);
+        const supplierId = parseInt(pathParts[5]);
+        
+        // 1. Total Commission Generated (earned by supplier)
+        const commissionGenerated = await prisma.sales_order_items.aggregate({
+          where: {
+            company_id: companyId,
+            supplier_id: supplierId,
+            commission_amount: { gt: 0 }
+          },
+          _sum: {
+            commission_amount: true
+          }
+        });
+        
+        // 2. Total Commission Paid (payments made to supplier)
+        const commissionPaid = await prisma.commission_payments.aggregate({
+          where: {
+            company_id: companyId,
+            supplier_id: supplierId
+          },
+          _sum: {
+            payment_amount: true
+          }
+        });
+        
+        // 3. Total Commission Allocated (allocations linked to supplier's items)
+        const allocations = await prisma.commission_allocations.findMany({
+          where: {
+            company_id: companyId,
+            sales_order_items: {
+              supplier_id: supplierId
+            }
+          }
+        });
+        
+        const totalAllocated = allocations.reduce((sum, alloc) => 
+          sum + parseFloat(alloc.allocated_amount.toString()), 0
+        );
+        
+        const totalGenerated = commissionGenerated._sum.commission_amount 
+          ? parseFloat(commissionGenerated._sum.commission_amount.toString()) 
+          : 0;
+        
+        const totalPaid = commissionPaid._sum.payment_amount 
+          ? parseFloat(commissionPaid._sum.payment_amount.toString()) 
+          : 0;
+        
+        const result = {
+          supplier_id: supplierId,
+          total_commission_generated: totalGenerated,
+          total_commission_paid: totalPaid,
+          total_commission_allocated: totalAllocated,
+          commission_outstanding: totalGenerated - totalAllocated,
+          unallocated_payments: totalPaid - totalAllocated
+        };
+        
+        res.writeHead(200);
+        res.end(JSON.stringify(result));
       }
       else if (pathname?.match(/^\/api\/companies\/\d+\/suppliers\/\d+\/payment-allocation-summary$/) && method === 'GET') {
         const pathParts = pathname.split('/');
-        const companyId = pathParts[3];
-        const supplierId = pathParts[5];
+        const companyId = parseInt(pathParts[3]);
+        const supplierId = parseInt(pathParts[5]);
         
-        const result = await query(`
-          SELECT 
-            cp.id as payment_id,
-            cp.payment_date,
-            cp.payment_amount as total_amount,
-            cp.payment_reference as reference_number,
-            cp.status,
-            COALESCE(SUM(ca.allocated_amount), 0) as allocated_amount,
-            cp.payment_amount - COALESCE(SUM(ca.allocated_amount), 0) as unallocated_amount
-          FROM commission_payments cp
-          LEFT JOIN commission_allocations ca ON cp.id = ca.commission_payment_id
-          WHERE cp.company_id = $1 AND cp.supplier_id = $2
-          GROUP BY cp.id, cp.payment_date, cp.payment_amount, cp.payment_reference, cp.status
-          ORDER BY cp.payment_date DESC
-        `, [companyId, supplierId]);
+        const payments = await prisma.commission_payments.findMany({
+          where: {
+            company_id: companyId,
+            supplier_id: supplierId
+          },
+          include: {
+            commission_payment_items: {
+              include: {
+                commission_allocations: true
+              }
+            }
+          },
+          orderBy: { payment_date: 'desc' }
+        });
+        
+        // Transform to match existing API response
+        const result = payments.map(payment => {
+          const allocatedAmount = payment.commission_payment_items.reduce((sum, item) => {
+            const itemAllocated = item.commission_allocations.reduce((itemSum, alloc) => 
+              itemSum + parseFloat(alloc.allocated_amount.toString()), 0
+            );
+            return sum + itemAllocated;
+          }, 0);
+          const totalAmount = parseFloat(payment.payment_amount.toString());
+          
+          return {
+            payment_id: payment.id,
+            payment_date: payment.payment_date,
+            total_amount: totalAmount,
+            reference_number: payment.payment_reference,
+            status: payment.status,
+            allocated_amount: allocatedAmount,
+            unallocated_amount: totalAmount - allocatedAmount
+          };
+        });
         
         res.writeHead(200);
-        res.end(JSON.stringify(result.rows));
+        res.end(JSON.stringify(result));
       }
       else {
         res.writeHead(404);
