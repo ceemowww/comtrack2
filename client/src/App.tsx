@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import Login from './components/Login';
 import Dashboard from './components/Dashboard';
 import SupplierPage from './components/SupplierPage';
+import CommissionPaymentCreate from './components/CommissionPaymentCreate';
 import { Company } from './types';
 import './App.css';
 
@@ -51,6 +52,14 @@ function App() {
             element={
               selectedCompany ? 
                 <SupplierPage company={selectedCompany} onLogout={handleLogout} /> : 
+                <Navigate to="/login" replace />
+            } 
+          />
+          <Route 
+            path="/commission-payments/create" 
+            element={
+              selectedCompany ? 
+                <CommissionPaymentCreate company={selectedCompany} onLogout={handleLogout} /> : 
                 <Navigate to="/login" replace />
             } 
           />

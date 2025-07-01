@@ -27,6 +27,46 @@ DATABASE_URL=postgresql://cassmao@localhost:5432/comtrack
 - `npm start` - Start production server (serves built client)
 - `npm run install:all` - Install dependencies for all packages
 
+## Worktree Port Management
+
+When working with multiple git worktrees, each worktree needs unique ports to avoid conflicts:
+
+### Port Allocation Strategy
+- **Main worktree**: Server on 3001, Client on 3000
+- **Agent2 worktree**: Server on 3002, Client on 3003  
+- **Additional worktrees**: Increment by 2 (3004/3005, 3006/3007, etc.)
+
+### Setup for New Worktrees
+1. **Create environment files**:
+   ```bash
+   # Root .env
+   PORT=3002
+   REACT_APP_PORT=3003
+   
+   # server/.env
+   PORT=3002
+   DATABASE_URL=postgresql://cassmao@localhost:5432/comtrack
+   ```
+
+2. **Update client proxy** in `client/package.json`:
+   ```json
+   "proxy": "http://localhost:3002"
+   ```
+
+3. **Install dependencies**:
+   ```bash
+   npm install                                    # Root dependencies
+   cd /path/to/worktree/server && npm install    # Server dependencies  
+   cd /path/to/worktree/client && npm install    # Client dependencies
+   ```
+   
+   **Note**: Use full directory paths when changing directories. Relative paths like `cd client` may not work in all contexts.
+
+### Environment Variables
+- `PORT` - Server port (3002 for agent2)
+- `REACT_APP_PORT` - Client port (3003 for agent2) 
+- `DATABASE_URL` - Shared PostgreSQL database connection
+
 ## Commission Feature
 
 The sales order system tracks commission percentages per line item with a comprehensive payment and allocation system:

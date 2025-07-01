@@ -5,7 +5,7 @@ import * as fs from 'fs';
 import { prisma } from './db';
 import { Prisma } from '@prisma/client';
 
-const PORT = process.env.PORT || 5000;
+const PORT = process.env.PORT || 3001;
 const CLIENT_BUILD_PATH = path.join(__dirname, '../../client/build');
 
 // Helper function to parse request body
@@ -770,13 +770,31 @@ const server = http.createServer(async (req, res) => {
       else if (pathname?.match(/^\/api\/companies\/\d+\/commission-payments$/) && method === 'POST') {
         const companyId = parseInt(pathname.split('/')[3]);
         const body = await parseBody(req);
-        const { supplier_id, payment_date, total_amount, reference_number, notes } = body;
+        const { supplier_id, payment_date, line_items, reference_number, notes } = body;
         
-        if (!supplier_id || !payment_date || !total_amount) {
+        if (!supplier_id || !payment_date || !line_items || !Array.isArray(line_items) || line_items.length === 0) {
           res.writeHead(400);
-          res.end(JSON.stringify({ error: 'Supplier ID, payment date, and total amount are required' }));
+          res.end(JSON.stringify({ error: 'Supplier ID, payment date, and at least one line item are required' }));
           return;
         }
+        
+        // Validate line items
+        for (const item of line_items) {
+          if (!item.amount || typeof item.amount !== 'number' || item.amount <= 0) {
+            res.writeHead(400);
+            res.end(JSON.stringify({ error: 'Each line item must have a positive amount' }));
+            return;
+          }
+          if (!item.description || typeof item.description !== 'string' || item.description.trim() === '') {
+            res.writeHead(400);
+            res.end(JSON.stringify({ error: 'Each line item must have a description' }));
+            return;
+          }
+        }
+        
+        // Calculate total from line items
+        const calculatedTotal = line_items.reduce((sum, item) => 
+          sum.add(new Prisma.Decimal(item.amount)), new Prisma.Decimal(0));
         
         // Verify supplier belongs to the company
         const supplier = await prisma.suppliers.findFirst({
@@ -789,35 +807,83 @@ const server = http.createServer(async (req, res) => {
         }
         
         const result = await prisma.$transaction(async (tx) => {
-          // Create the payment
+          // Create the payment with calculated total
           const payment = await tx.commission_payments.create({
             data: {
               company_id: companyId,
               supplier_id,
               payment_date: new Date(payment_date),
-              payment_amount: new Prisma.Decimal(total_amount),
+              payment_amount: calculatedTotal,
               payment_reference: reference_number || null,
               notes: notes || null,
               status: 'unallocated'
             }
           });
 
-          // Create a default payment item with the full amount
-          const paymentItem = await tx.commission_payment_items.create({
-            data: {
-              company_id: companyId,
-              commission_payment_id: payment.id,
-              amount: new Prisma.Decimal(total_amount),
-              description: 'Payment item',
-              notes: null
-            }
-          });
+          // Create all line items
+          const paymentItems = [];
+          for (const item of line_items) {
+            const paymentItem = await tx.commission_payment_items.create({
+              data: {
+                company_id: companyId,
+                commission_payment_id: payment.id,
+                amount: new Prisma.Decimal(item.amount),
+                description: item.description,
+                notes: item.notes || null
+              }
+            });
+            paymentItems.push(paymentItem);
+          }
 
-          return { ...payment, items: [paymentItem] };
+          return { ...payment, items: paymentItems };
         });
         
         res.writeHead(201);
         res.end(JSON.stringify(result));
+      }
+      // Update commission payment
+      else if (pathname?.match(/^\/api\/companies\/\d+\/commission-payments\/\d+$/) && method === 'PUT') {
+        const companyId = parseInt(pathname.split('/')[3]);
+        const paymentId = parseInt(pathname.split('/')[5]);
+        const body = await parseBody(req);
+        const { payment_date, reference_number, notes } = body;
+        
+        if (!payment_date) {
+          res.writeHead(400);
+          res.end(JSON.stringify({ error: 'Payment date is required' }));
+          return;
+        }
+        
+        try {
+          // Verify payment exists and belongs to company
+          const existingPayment = await prisma.commission_payments.findFirst({
+            where: { id: paymentId, company_id: companyId }
+          });
+          
+          if (!existingPayment) {
+            res.writeHead(404);
+            res.end(JSON.stringify({ error: 'Payment not found' }));
+            return;
+          }
+          
+          // Update payment
+          const updatedPayment = await prisma.commission_payments.update({
+            where: { id: paymentId },
+            data: {
+              payment_date: new Date(payment_date),
+              payment_reference: reference_number || null,
+              notes: notes || null,
+              updated_at: new Date()
+            }
+          });
+          
+          res.writeHead(200);
+          res.end(JSON.stringify(updatedPayment));
+        } catch (error) {
+          console.error('Failed to update commission payment:', error);
+          res.writeHead(500);
+          res.end(JSON.stringify({ error: 'Failed to update commission payment' }));
+        }
       }
       // Commission Allocations endpoints
       else if (pathname?.match(/^\/api\/companies\/\d+\/commission-allocations$/) && method === 'POST') {
@@ -1081,6 +1147,92 @@ const server = http.createServer(async (req, res) => {
             res.writeHead(500);
             res.end(JSON.stringify({ error: 'Failed to delete payment item' }));
           }
+        }
+      }
+      // Bulk update payment items
+      else if (pathname?.match(/^\/api\/companies\/\d+\/commission-payments\/\d+\/items\/bulk-update$/) && method === 'PUT') {
+        const pathParts = pathname.split('/');
+        const companyId = parseInt(pathParts[3]);
+        const paymentId = parseInt(pathParts[5]);
+        const body = await parseBody(req);
+        const { line_items } = body;
+        
+        if (!line_items || !Array.isArray(line_items) || line_items.length === 0) {
+          res.writeHead(400);
+          res.end(JSON.stringify({ error: 'At least one line item is required' }));
+          return;
+        }
+        
+        // Validate line items
+        for (const item of line_items) {
+          if (!item.amount || typeof item.amount !== 'number' || item.amount <= 0) {
+            res.writeHead(400);
+            res.end(JSON.stringify({ error: 'Each line item must have a positive amount' }));
+            return;
+          }
+          if (!item.description || typeof item.description !== 'string' || item.description.trim() === '') {
+            res.writeHead(400);
+            res.end(JSON.stringify({ error: 'Each line item must have a description' }));
+            return;
+          }
+        }
+        
+        try {
+          const result = await prisma.$transaction(async (tx) => {
+            // Verify payment exists and belongs to company
+            const payment = await tx.commission_payments.findFirst({
+              where: { id: paymentId, company_id: companyId }
+            });
+            
+            if (!payment) {
+              throw new Error('Payment not found');
+            }
+            
+            // Delete existing payment items
+            await tx.commission_payment_items.deleteMany({
+              where: {
+                commission_payment_id: paymentId,
+                company_id: companyId
+              }
+            });
+            
+            // Create new payment items
+            const paymentItems = [];
+            for (const item of line_items) {
+              const paymentItem = await tx.commission_payment_items.create({
+                data: {
+                  company_id: companyId,
+                  commission_payment_id: paymentId,
+                  amount: new Prisma.Decimal(item.amount),
+                  description: item.description,
+                  notes: item.notes || null
+                }
+              });
+              paymentItems.push(paymentItem);
+            }
+            
+            // Calculate new total
+            const newTotal = line_items.reduce((sum, item) => 
+              sum.add(new Prisma.Decimal(item.amount)), new Prisma.Decimal(0));
+            
+            // Update payment total
+            const updatedPayment = await tx.commission_payments.update({
+              where: { id: paymentId },
+              data: {
+                payment_amount: newTotal,
+                updated_at: new Date()
+              }
+            });
+            
+            return { payment: updatedPayment, items: paymentItems };
+          });
+          
+          res.writeHead(200);
+          res.end(JSON.stringify(result));
+        } catch (error) {
+          console.error('Failed to update payment items:', error);
+          res.writeHead(500);
+          res.end(JSON.stringify({ error: 'Failed to update payment items' }));
         }
       }
       else if (pathname?.match(/^\/api\/companies\/\d+\/commission-payment-items\/\d+\/allocations$/) && method === 'GET') {

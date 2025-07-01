@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { CommissionPayment, Supplier } from '../types';
+import { CommissionPayment, Supplier, CreateCommissionPaymentData } from '../types';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -14,7 +14,7 @@ interface CommissionPaymentFormProps {
   onOpenChange: (open: boolean) => void;
   suppliers: Supplier[];
   payment?: CommissionPayment | null;
-  onSubmit: (paymentData: Omit<CommissionPayment, 'id' | 'company_id' | 'status' | 'created_at' | 'updated_at'>) => Promise<void>;
+  onSubmit: (paymentData: CreateCommissionPaymentData) => Promise<void>;
   loading: boolean;
 }
 
@@ -64,7 +64,13 @@ const CommissionPaymentForm: React.FC<CommissionPaymentFormProps> = ({
       await onSubmit({
         supplier_id: Number(formData.supplier_id),
         payment_date: formData.payment_date,
-        total_amount: Number(formData.total_amount),
+        line_items: [
+          {
+            amount: Number(formData.total_amount),
+            description: 'Payment item',
+            notes: formData.notes || undefined
+          }
+        ],
         reference_number: formData.reference_number || undefined,
         notes: formData.notes || undefined
       });

@@ -1,7 +1,7 @@
 import axios from 'axios';
 import { Company, Customer, Supplier, Part, SalesOrder, SalesOrderWithItems, CreateSalesOrderData, 
          CommissionOutstanding, CommissionOutstandingDetail, CommissionPayment, CommissionPaymentWithItems, 
-         CommissionPaymentItem, CommissionAllocation, SupplierCommissionSummary } from './types';
+         CommissionPaymentItem, CommissionAllocation, SupplierCommissionSummary, CreateCommissionPaymentData } from './types';
 
 const API_BASE = '/api';
 
@@ -115,8 +115,18 @@ export const api = {
     return response.data;
   },
 
-  createCommissionPayment: async (companyId: number, payment: Omit<CommissionPayment, 'id' | 'company_id' | 'status' | 'created_at' | 'updated_at'>): Promise<CommissionPayment> => {
+  createCommissionPayment: async (companyId: number, payment: CreateCommissionPaymentData): Promise<CommissionPayment> => {
     const response = await axios.post(`${API_BASE}/companies/${companyId}/commission-payments`, payment);
+    return response.data;
+  },
+
+  updateCommissionPayment: async (companyId: number, paymentId: number, payment: { payment_date: string; reference_number?: string; notes?: string }): Promise<CommissionPayment> => {
+    const response = await axios.put(`${API_BASE}/companies/${companyId}/commission-payments/${paymentId}`, payment);
+    return response.data;
+  },
+
+  updateCommissionPaymentItems: async (companyId: number, paymentId: number, lineItems: { amount: number; description: string; notes?: string }[]): Promise<{ payment: CommissionPayment; items: CommissionPaymentItem[] }> => {
+    const response = await axios.put(`${API_BASE}/companies/${companyId}/commission-payments/${paymentId}/items/bulk-update`, { line_items: lineItems });
     return response.data;
   },
 
@@ -188,6 +198,8 @@ export const getCommissionOutstanding = api.getCommissionOutstanding;
 export const getCommissionOutstandingDetails = api.getCommissionOutstandingDetails;
 export const getCommissionPayments = api.getCommissionPayments;
 export const createCommissionPayment = api.createCommissionPayment;
+export const updateCommissionPayment = api.updateCommissionPayment;
+export const updateCommissionPaymentItems = api.updateCommissionPaymentItems;
 export const getCommissionPaymentItems = api.getCommissionPaymentItems;
 export const createCommissionPaymentItem = api.createCommissionPaymentItem;
 export const updateCommissionPaymentItem = api.updateCommissionPaymentItem;

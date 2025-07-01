@@ -105,6 +105,20 @@ export interface CommissionPaymentItem {
   updated_at: string;
 }
 
+export interface CreateCommissionPaymentLineItem {
+  amount: number;
+  description: string;
+  notes?: string;
+}
+
+export interface CreateCommissionPaymentData {
+  supplier_id: number;
+  payment_date: string;
+  line_items: CreateCommissionPaymentLineItem[];
+  reference_number?: string;
+  notes?: string;
+}
+
 export interface CommissionPayment {
   id: number;
   company_id: number;
